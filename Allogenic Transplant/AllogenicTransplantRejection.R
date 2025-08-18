@@ -26,7 +26,7 @@ pwl_hallmark <- split(sets_hallmark$gene_symbol, # Genes to split into pathways,
 sets_reactome <- msigdbr(species="Mus musculus", subcategory="CP:REACTOME") # Large df w/ categories
 pwl_reactome <- split(sets_reactome$gene_symbol, # Genes to split into pathways, by ensembl
                       sets_reactome$gs_name) # Pathway names
-kegg_gene_sets <- msigdbr(species="Mus musculus", subcategory="CP:KEGG") # Large df w/ categories
+kegg_gene_sets <- msigdbr(species="Mus musculus", subcategory="CP:KEGG_LEGACY") # Large df w/ categories
 pwl_kegg <- split(kegg_gene_sets$gene_symbol, # Genes to split into pathways, by ensembl
                   kegg_gene_sets$gs_name) # Pathway names
 biocarta_gene_sets <- msigdbr(species="Mus musculus", subcategory="CP:BIOCARTA") # Large df w/ categories
@@ -37,27 +37,23 @@ length(pwl_msigdbr)
 
 
 
-
-
-
-
-
 # 1. Load the Data ----
 # Organize Data
-setwd("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Batch1")
+setwd("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/")
 getwd()
 
 #Metadata Importing
 meta_batch1 <- read.table("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Batch1/Metadata_Batch1.csv", sep=",", header=T) # Metadata file
 meta_batch2 <- read.table("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Batch2/Metadata_Batch2.csv", sep=",", header=T) # Metadata file
 meta_batch3 <- read.table("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Batch3/Metadata_Batch3.csv", sep=",", header=T) # Metadata file
+meta_batch4 <- read.table("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Batch4/Metadata_Batch4.csv", sep=",", header=T) # Metadata file
 
 meta_batch1 <- as.data.frame(meta_batch1)
 meta_batch2 <- as.data.frame(meta_batch2)
 meta_batch3 <- as.data.frame(meta_batch3)
-
+meta_batch4 <- as.data.frame(meta_batch4)
 # Merge metadata by columns (i.e., add samples from Batch 2 to Batch 1)
-meta_combined <- rbind(meta_batch1, meta_batch2,meta_batch3)
+meta_combined <- rbind(meta_batch1, meta_batch2,meta_batch3,meta_batch4)
 
 # Preview the combined metadata
 head(meta_combined)
@@ -72,6 +68,10 @@ counts_batch2 <- na.omit(counts_batch2)
 
 counts_batch3 <- as.data.frame(read.table("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Batch3/IsTx_gene_expected_count_annot_batch3.csv", sep=",", header=T,check.names = FALSE)) # Raw counts file
 counts_batch3 <- na.omit(counts_batch3)
+
+counts_batch4 <- as.data.frame(read.table("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Batch4/IsTx_gene_expected_count_annot_batch4.csv", sep=",", header=T,check.names = FALSE)) # Raw counts file
+counts_batch4 <- na.omit(counts_batch4)
+
 
 #Remove duplicate names
 counts_batch1 <- counts_batch1[!duplicated(counts_batch1[, 1]), ]
@@ -89,6 +89,11 @@ genes <- counts_batch3[, 1]
 rownames(counts_batch3) <- genes
 counts_batch3 <- counts_batch3[, -1]
 
+counts_batch4 <- counts_batch4[!duplicated(counts_batch4[, 1]), ]
+genes <- counts_batch4[, 1]
+rownames(counts_batch4) <- genes
+counts_batch4 <- counts_batch4[, -1]
+
 #Combine data
 # First merge counts_batch1 and counts_batch2
 combined_counts <- merge(counts_batch1, counts_batch2, by = "row.names", all = TRUE)
@@ -97,6 +102,11 @@ rownames(combined_counts) <- combined_counts$Row.names
 combined_counts$Row.names <- NULL
 # Then merge the result with counts_batch3
 combined_counts <- merge(combined_counts, counts_batch3, by = "row.names", all = TRUE)
+# Rename the Row.names column back
+rownames(combined_counts) <- combined_counts$Row.names
+combined_counts$Row.names <- NULL
+# Then merge the result with counts_batch4
+combined_counts <- merge(combined_counts, counts_batch4, by = "row.names", all = TRUE)
 # Rename the Row.names column back
 rownames(combined_counts) <- combined_counts$Row.names
 combined_counts$Row.names <- NULL
@@ -113,37 +123,162 @@ combined_counts <- combined_counts[, colnames(combined_counts) %in% samples_to_k
 
 # Preview the combined dataset
 head(combined_counts)
+# Create new column with high-level analysis groups
+meta_combined$Outcomes <- meta_combined$Group
+# Change Late Rejection to Tolerance for Initial Analysis 
+meta_combined$Group[meta_combined$Group == "Late Rejection"] <- "Tolerance"
 
-
-# 2.Preprocessing- DESeq ----
+# 2.Preprocessing and Cleaning ----
 
 # Select columns in combined_counts that match the remaining sample names in meta_combined
 combined_counts <- combined_counts[, meta_combined$Samples]  # Ensure Sample_IDs match column names in combined_counts
 
-case1_f1 <- flexiDEG.function1(combined_counts, meta_combined, # Run Function 1
+IsletTransplantCounts <- flexiDEG.function1(combined_counts, meta_combined, # Run Function 1
                                convert_genes = F, exclude_riken = T, exclude_pseudo = F,
-                               batches = F, quality = T, variance = F,use_pseudobulk = F) # Select filters: 2, 0, 15
-rows_to_remove <- grep("^Gm[0-9]", rownames(case1_f1))
+                               batches = F, quality = T, variance = F,use_pseudobulk = F) # Select filters: 0, 0, 0
+rows_to_remove <- grep("^Gm[0-9]", rownames(IsletTransplantCounts))
 # Remove those rows from case1_f1
-case1_f1 <- case1_f1[-rows_to_remove, ]
-# meta_combined <- meta_combined %>%
-#   mutate(Group = case_when(
-#     Group %in% c("Healthy_7", "Healthy_14") ~ "Early",
-#     Group == "Healthy_28" ~ "Intermediate",
-#     Group %in% c("Healthy_42", "Healthy_56") ~ "Late",
-#     TRUE ~ Group  # Keep other values unchanged
-#   ))
+IsletTransplantCounts <- IsletTransplantCounts[-rows_to_remove, ]
+
 # Saving case1_f1 dataframe as a CSV file
-write.csv(case1_f1, file = "/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Combined_Raw_Counts_ITx_Filtered.csv", row.names = TRUE)
+write.csv(IsletTransplantCounts, file = "/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Combined/Combined_Raw_Counts_ITx_Filtered.csv", row.names = TRUE)
 
 # Saving meta_combined dataframe as a CSV file
-write.csv(meta_combined, file = "/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Combined_Metadata_ITx.csv", row.names = FALSE)
+write.csv(meta_combined, file = "/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Combined/Combined_Metadata_ITx.csv", row.names = FALSE)
 
 # Color palettes
 coul <- colorRampPalette(brewer.pal(11, "RdBu"))(100) # Palette for gene heatmaps
 coul_gsva <- colorRampPalette(brewer.pal(11, "PRGn"))(100) # Palette for gsva heatmaps
 colSide <- flexiDEG.colors(meta_combined)
 unique_colSide <- unique(colSide)
+
+# 3.Create Univeral DESqEQ Object ----
+
+IsletTransplantCounts <- as.matrix(IsletTransplantCounts)
+storage.mode(IsletTransplantCounts) <- "integer"
+
+dds_IsletTransplant <- DESeqDataSetFromMatrix(IsletTransplantCounts, meta_combined,
+                               design = ~ 1)   # dummy design for now
+
+saveRDS(dds_IsletTransplant, file = "/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Robjects/dds_IsletTransplant_master.rds")
+
+# 4. Allogeneic Vs Syngeneic Signature----
+# subset samples
+sel <- colData(dds_IsletTransplant)$Group %in% c("Control Rejected","Control Accepted") & colData(dds_IsletTransplant)$Day %in% c(7,14)
+dds_IsletTransplant_AlloVsSyn <- dds_IsletTransplant[, sel]
+
+dds_IsletTransplant_AlloVsSyn$Batch       <- factor(dds_IsletTransplant_AlloVsSyn$Batch)
+dds_IsletTransplant_AlloVsSyn$LibraryPrep <- factor(dds_IsletTransplant_AlloVsSyn$LibraryPrep)
+dds_IsletTransplant_AlloVsSyn$Group <- factor(
+  dds_IsletTransplant_AlloVsSyn$Group,
+  levels = c("Control Accepted", "Control Rejected")  # order sets baseline
+)
+levels(dds_IsletTransplant_AlloVsSyn$Group)
+
+dds_IsletTransplant_AlloVsSyn$Day <- factor(dds_IsletTransplant_AlloVsSyn$Day,
+                                            levels = c(7, 14))  # baseline = 7
+levels(dds_IsletTransplant_AlloVsSyn$Day)
+
+# Check for Collinearuty
+cd <- as.data.frame(colData(dds_IsletTransplant_AlloVsSyn))
+# Basic sanity
+lapply(cd[, c("Batch","LibraryPrep","Day","Group")], function(x) table(x, useNA="ifany"))
+# Check for NAs
+sapply(cd[, c("Batch","LibraryPrep","Day","Group")], function(x) any(is.na(x)))
+# Model matrix rank
+mm <- model.matrix(~ Batch + LibraryPrep + Day + Group, data = cd)
+qr(mm)$rank; ncol(mm)             # if rank < ncol(mm), not full rank
+
+
+#Design Formula
+design(dds_IsletTransplant_AlloVsSyn) <- ~ Batch + Day + Group + Day:Group
+dds_IsletTransplant_AlloVsSyn <- DESeq(dds_IsletTransplant_AlloVsSyn)
+design(dds_IsletTransplant_AlloVsSyn)
+resultsNames(dds_IsletTransplant_AlloVsSyn)
+
+# Day 7
+res_ALLOvSYN_D7 <- results(dds_IsletTransplant_AlloVsSyn,
+                           name = "Group_Control.Rejected_vs_Control.Accepted")
+
+# Day 14
+res_ALLOvSYN_D14 <- results(dds_IsletTransplant_AlloVsSyn,
+                            list(c("Group_Control.Rejected_vs_Control.Accepted",
+                                   "Day14.GroupControl.Rejected")))
+
+res_interaction <- results(dds_IsletTransplant_AlloVsSyn,
+                           name = "Day14.GroupControl.Rejected")
+
+
+summary(res_ALLOvSYN_D7)
+summary(res_ALLOvSYN_D14)
+
+library(EnhancedVolcano)
+
+## --- pick thresholds ---
+p_cut <- 0.10
+fc_cut <- 1
+
+# 1) Make clean data.frames with a 'gene' column
+d7  <- as.data.frame(res_ALLOvSYN_D7)
+d14 <- as.data.frame(res_ALLOvSYN_D14)
+d7$gene  <- rownames(d7)
+d14$gene <- rownames(d14)
+
+## --- get significant gene names (for labeling / counts) ---
+sig_D7_names  <- rownames(subset(as.data.frame(res_ALLOvSYN_D7),
+                                 padj < p_cut & abs(log2FoldChange) >= fc_cut))
+sig_D14_names <- rownames(subset(as.data.frame(res_ALLOvSYN_D14),
+                                 padj < p_cut & abs(log2FoldChange) >= fc_cut))
+
+## label only the top 20 significant genes (by padj) to keep plots clean
+topN <- 20
+top20_D7  <- head(rownames(res_ALLOvSYN_D7[order(res_ALLOvSYN_D7$padj), ]),  topN)
+top20_D14 <- head(rownames(res_ALLOvSYN_D14[order(res_ALLOvSYN_D14$padj), ]), topN)
+
+## --- Volcano: Day 7 ---
+EnhancedVolcano(
+  res_ALLOvSYN_D7,
+  lab         = rownames(res_ALLOvSYN_D7),
+  x           = "log2FoldChange",
+  y           = "padj",
+  pCutoff     = p_cut,
+  FCcutoff    = fc_cut,
+  boxedLabels = TRUE,
+  drawConnectors = TRUE,
+  title       = "ALLO vs SYN — Day 7",
+  subtitle    = paste0("sig @ FDR≤", p_cut, " & |LFC|≥", fc_cut, 
+                       " (n = ", length(sig_D7_names), ")"),
+  xlab        = "log2FC (ALLO − SYN, Day 7)",
+  ylab        = "-log10(FDR)",
+  labSize     = 5.0,
+  pointSize   = 3.0,
+  max.overlaps= 50,
+  ylim = c(0,5),
+  selectLab   = intersect(top20_D7, sig_D7_names)
+)
+
+## --- Volcano: Day 14 ---
+EnhancedVolcano(
+  res_ALLOvSYN_D14,
+  lab         = rownames(res_ALLOvSYN_D14),
+  x           = "log2FoldChange",
+  y           = "padj",
+  pCutoff     = p_cut,
+  FCcutoff    = fc_cut,
+  title       = "ALLO vs SYN — Day 14",
+  boxedLabels = TRUE,
+  subtitle    = paste0("sig @ FDR≤", p_cut, " & |LFC|≥", fc_cut, 
+                       " (n = ", length(sig_D14_names), ")"),
+  xlab        = "log2FC (ALLO − SYN, Day 14)",
+  ylab        = "-log10(FDR)",
+  ylim = c(0,10),
+  drawConnectors = TRUE,
+  labSize     = 5.0,
+  pointSize   = 3.0,
+  max.overlaps= 50,
+  selectLab   = intersect(top20_D14, sig_D14_names)
+)
+
 
 #3.DESEQ Analysis-Rejection with Anti-CD40L vs Without Anti-CD40L ----
 unique(meta_combined$Group)
