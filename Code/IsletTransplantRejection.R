@@ -740,9 +740,6 @@ p <- ggplot(plot_df, aes(x = Day, y = gs_name)) +
   )
 print(p)
 
-# Save the plotting input (so it’s reproducible)
-outdir <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic"
-write.csv(plot_df, file.path(outdir, "Dotplot_Input_immune_master_Day7_Day14.csv"), row.names = FALSE)
 
 
 ## GSVA Analysis----
@@ -759,7 +756,7 @@ meta <- as.data.frame(colData(dds_IsletTransplant_AlloVsSyn))
 meta$Group <- factor(meta$Group, levels = c("Control Accepted", "Control Rejected"))
 meta$Batch <- factor(meta$Batch)
 
-# ------------------ 2) Gene sets ------------------
+
 c8   <- msigdbr(species="Mus musculus", category="C8")
 hall <- msigdbr(species="Mus musculus", category="H")
 kegg <- msigdbr(species="Mus musculus", category="C2", subcategory="CP:KEGG_LEGACY")
@@ -770,7 +767,7 @@ sets <- c(
   split(kegg$gene_symbol, kegg$gs_name)
 )
 
-# ------------------ 3) Subset by Day ------------------
+
 pick_day <- function(day) which(meta$Day %in% c(day, paste0("Day",day),"D",day))
 
 expr_d7  <- expr[, pick_day(7)]
@@ -778,7 +775,7 @@ expr_d14 <- expr[, pick_day(14)]
 meta_d7  <- meta[pick_day(7),]
 meta_d14 <- meta[pick_day(14),]
 
-# ------------------ 4) GSVA in parallel ------------------
+
 param <- MulticoreParam(workers = max(1, parallel::detectCores() - 1))
 gsva_par_d7 <- gsvaParam(
   expr_d7,           # VST matrix
@@ -798,7 +795,7 @@ gsva_par_d14 <- gsvaParam(
 )
 es_d14 <- gsva(gsva_par_d14)
 
-# ------------------ 5) limma with batch ------------------
+
 run_limma <- function(es, meta) {
   design <- model.matrix(~ 0 + Group + Batch, data = meta)
   colnames(design) <- make.names(colnames(design))
@@ -814,8 +811,10 @@ GSVA_res_d7  <- run_limma(es_d7,  meta_d7)
 GSVA_res_d14 <- run_limma(es_d14, meta_d14)
 
 # # Save results
-# write.csv(res_d7,  "GSVA_limma_Day7.csv")
-# write.csv(res_d14, "GSVA_limma_Day14.csv")
+write.csv(es_d7,  "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/GSVAScores_AlloVsSyn_Day7.csv")
+write.csv(es_d14, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/GSVAScores_AlloVsSyn_Day14.csv")
+write.csv(GSVA_res_d7,  "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/GSVAStats_AlloVsSyn_Day7.csv")
+write.csv(GSVA_res_d14, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/GSVAStats_AlloVsSyn_Day14.csv")
 
 
 #3.DESEQ Analysis-Rejection with Anti-CD40L vs Without Anti-CD40L ----

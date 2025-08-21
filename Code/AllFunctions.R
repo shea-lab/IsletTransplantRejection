@@ -1419,3 +1419,151 @@ ggbiplot <- function(pcobj, choices = 1:2, scale = 1, pc.biplot = TRUE,
   
   return(g)
 }
+
+# install.packages(c("glmnet"))
+library(glmnet)
+
+library(glmnet)
+
+flexiEN_multiclass <- function(counts, metadata,
+                               group_col = "Group",
+                               batch_col = NULL,
+                               alphas = seq(0.1, 1, by = 0.1),
+                               nfolds = 3,
+                               cv_mode = c("Kfold","LOO"),
+                               prefilter_top_var = 2000,  # 0 = no prefilter
+                               lambda_choice = c("lambda.1se","lambda.min"),
+                               seed = 123) {
+  
+  cv_mode <- match.arg(cv_mode)
+  lambda_choice <- match.arg(lambda_choice)
+  
+  stopifnot(all(colnames(counts) %in% rownames(metadata)))
+  
+  ## align
+  metadata <- metadata[colnames(counts), , drop = FALSE]
+  y <- factor(metadata[[group_col]])
+  if (nlevels(y) < 2) stop("Need >= 2 classes")
+  
+  ## X: samples x genes
+  X <- t(as.matrix(counts))
+  
+  ## add batch as unpenalized dummies (optional)
+  penalty <- rep(1, ncol(X))
+  if (!is.null(batch_col)) {
+    B <- model.matrix(~ 0 + factor(metadata[[batch_col]]))
+    colnames(B) <- paste0("BATCH_", colnames(B))
+    X <- cbind(B, X)
+    penalty <- c(rep(0, ncol(B)), penalty)
+  }
+  
+  ## prefilter by variance (optional; global—simpler/fast)
+  if (prefilter_top_var > 0) {
+    # indices for gene columns (exclude any batch dummies)
+    gene_start <- if (!is.null(batch_col)) (ncol(X) - ncol(counts)) + 1L else 1L
+    gene_idx <- seq.int(from = ncol(X) - ncol(counts) + 1L, to = ncol(X))
+    sds <- apply(X[, gene_idx, drop = FALSE], 2, sd)
+    keep_g <- order(sds, decreasing = TRUE)[seq_len(min(prefilter_top_var, length(sds)))]
+    keep_cols <- c(if (!is.null(batch_col)) seq_len(ncol(X) - ncol(counts)) else integer(0),
+                   gene_idx[keep_g])
+    X <- X[, keep_cols, drop = FALSE]
+    penalty <- penalty[keep_cols]
+  }
+  
+  ## folds: LOO or Kfold (stratified)
+  set.seed(seed)
+  if (cv_mode == "LOO") {
+    K <- nrow(X)
+    foldid <- seq_len(K)  # each sample is its own fold
+  } else {
+    K <- nfolds
+    foldid <- integer(length(y))
+    for (lev in levels(y)) {
+      idx <- which(y == lev)
+      foldid[idx] <- sample(rep(1:K, length.out = length(idx)))
+    }
+  }
+  
+  ## search over alphas
+  best <- list(err = Inf)
+  cv_summaries <- list()
+  
+  for (a in alphas) {
+    cvfit <- cv.glmnet(
+      x = X, y = y,
+      family = if (nlevels(y) == 2) "binomial" else "multinomial",
+      type.measure = "class",
+      nfolds = K,
+      foldid = foldid,
+      alpha = a,
+      penalty.factor = penalty,
+      standardize = TRUE,
+      intercept = TRUE
+    )
+    err <- min(cvfit$cvm)
+    cv_summaries[[as.character(a)]] <- list(alpha = a, cvmin = err,
+                                            lambda.min = cvfit$lambda.min,
+                                            lambda.1se = cvfit$lambda.1se)
+    if (err < best$err) {
+      best <- list(err = err, alpha = a,
+                   lambda = if (lambda_choice == "lambda.1se") cvfit$lambda.1se else cvfit$lambda.min,
+                   cvfit = cvfit)
+    }
+  }
+  
+  ## refit full path at best alpha
+  final_fit <- glmnet(
+    x = X, y = y,
+    family = if (nlevels(y) == 2) "binomial" else "multinomial",
+    alpha = best$alpha,
+    penalty.factor = penalty,
+    standardize = TRUE,
+    intercept = TRUE,
+    grouped = FALSE   # <-- key line for LOO
+  )
+  
+  coefs <- coef(final_fit, s = best$lambda)  # list per class (multinomial) or single (binomial)
+  
+  ## collect non-zero genes across classes
+  if (nlevels(y) == 2) {
+    M <- coefs
+    rn <- rownames(M)
+    nz <- which(M[, 1] != 0)
+    sel <- setdiff(nz, match("(Intercept)", rn, nomatch = 0))
+    keep <- rn[sel]
+    nz_union <- sort(keep[!startsWith(keep, "BATCH_")])
+    classes <- levels(y)
+    gene_names <- setdiff(rn, c("(Intercept)", grep("^BATCH_", rn, value = TRUE)))
+    coef_mat <- matrix(M[gene_names, 1, drop = TRUE], ncol = 1)
+    colnames(coef_mat) <- classes[1]  # arbitrary label for binomial
+    rownames(coef_mat) <- gene_names
+  } else {
+    nz_by_class <- lapply(coefs, function(M) {
+      rn <- rownames(M)
+      nz <- which(M[, 1] != 0)
+      sel <- setdiff(nz, match("(Intercept)", rn, nomatch = 0))
+      keep <- rn[sel]
+      keep[!startsWith(keep, "BATCH_")]
+    })
+    nz_union <- sort(unique(unlist(nz_by_class)))
+    classes <- names(coefs)
+    gene_names <- setdiff(rownames(coefs[[1]]), c("(Intercept)", grep("^BATCH_", rownames(coefs[[1]]), value = TRUE)))
+    coef_mat <- sapply(classes, function(cl) {
+      v <- coefs[[cl]][gene_names, 1, drop = TRUE]; v[is.na(v)] <- 0; v
+    })
+    rownames(coef_mat) <- gene_names
+  }
+  
+  ## rank genes by max |coef| across classes
+  max_abs_coef <- apply(abs(as.matrix(coef_mat)), 1, max)
+  coef_rank <- sort(max_abs_coef, decreasing = TRUE)
+  
+  list(
+    best = best[c("alpha","lambda","err")],
+    cv_mode = cv_mode,
+    cv_summaries = do.call(rbind, lapply(cv_summaries, as.data.frame)),
+    selected_union = nz_union,
+    coef_rank = coef_rank,
+    coef_by_class = coef_mat
+  )
+}
