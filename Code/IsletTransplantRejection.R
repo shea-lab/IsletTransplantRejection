@@ -345,35 +345,477 @@ EnhancedVolcano(res_interaction_df,
                 title = "Interaction: (Day 14 vs 7) × (Allo vs Syn)")
 
 
+
+
+
+
 ## PLSDA Analysis ----
-# 4 groups from Day × Group
-cd <- as.data.frame(colData(dds_IsletTransplant_AlloVsSyn))
 
-# map to short labels
-shortGroup <- ifelse(cd$Group == "Control Rejected", "ALLO", "SYN")
-cd$GD4 <- factor(paste0(shortGroup, "_", cd$Day),
-                 levels = c("ALLO_7","ALLO_14","SYN_7","SYN_14"))  # order requested
+library(DESeq2)
+library(limma)
+library(mixOmics)
+library(ggplot2)
+library(ComplexHeatmap)
+library(circlize)
 
-# VST (uses the fitted design dispersions)
-vsd <- DESeq2::vst(dds_IsletTransplant_AlloVsSyn, blind = FALSE)
-mat <- SummarizedExperiment::assay(vsd)
+# --- Build the 4-group label from your fitted object ---
+CountsAlloVsSyn <- as.data.frame(colData(dds_IsletTransplant_AlloVsSyn))
 
-# remove batch effect (for visualization only)
-mat_corr <- limma::removeBatchEffect(mat, batch = colData(vsd)$Batch)
+# Short group names
+shortGroup <- ifelse(CountsAlloVsSyn$Group == "Control Rejected", "Allogeneic", "Syngeneic")
+CountsAlloVsSyn$GD4 <- factor(paste0(shortGroup, "_", CountsAlloVsSyn$Day),
+                 levels = c("Allogeneic_7","Allogeneic_14","Syngeneic_7","Syngeneic_14"))
+# --- Variance-stabilized expression ---
+vsd <- vst(dds_IsletTransplant_AlloVsSyn, blind = FALSE)
+mat <- assay(vsd)  # genes x samples
+# --- Remove batch (for visualization only) ---
+mat_corr <- removeBatchEffect(mat, batch = colData(vsd)$Batch)
 
-# samples×features for PLS-DA
-X <- t(mat_corr)               # samples in rows, genes in columns
-Y <- cd$GD4                    # 4-class outcome
+# --- PLS-DA input: samples x genes ---
+X <- t(mat_corr)   # samples in rows
+Y <- CountsAlloVsSyn$GD4        # factor with 4 levels
 
-# install.packages("ropls")  # if needed
-library(ropls)
+set.seed(123)
+plsda_model <- mixOmics::plsda(X, Y, ncomp = 2)
 
-set.seed(1)
-plsda_fit <- opls(X, Y, predI = 2, orthoI = 0, permI = 0, scaleC = "standard")
+# Scores for LV1 & LV2
+scores <- plsda_model$variates$X
+plot_df <- data.frame(
+  LV1   = scores[, 1],
+  LV2   = scores[, 2],
+  Group = Y
+)
 
-# 2D score plot (PC-like but supervised)
-plot(plsda_fit, typeVc = "score", parAsColFc = Y, pchL = 19, cexN = 1.4,
-     legPositionVc = "topright", mainL = "PLS-DA (2D): ALLO/SYN × Day")
+
+group_colors <- c(
+  "Allogeneic_14" = "#8B1A1A",  # darker shade of red (deep crimson)
+  "Allogeneic_7"  = "#D62728",  # base red
+  "Syngeneic_14"  = "#08306B",  # darker shade of blue (navy/steel blue)
+  "Syngeneic_7"   = "#1F77B4"   # base blue
+)
+group_shapes <- c(
+  "Allogeneic_7"  = 16,
+  "Allogeneic_14" = 17,
+  "Syngeneic_7"   = 15,
+  "Syngeneic_14"  = 18
+)
+
+
+expl_var <- round(plsda_model$prop_expl_var$X * 100, 1)  # % explained variance for X
+xlab <- paste0("PLS Component 1 (", expl_var[1], "%)")
+ylab <- paste0("PLS Component 2 (", expl_var[2], "%)")
+
+# 2D PLS-DA plot (LV1 vs LV2) with filled ellipses
+ggplot(plot_df, aes(x = LV1, y = LV2, color = Group, shape = Group)) +
+  # points
+  geom_point(size = 5, alpha = 0.9) +
+  # filled confidence ellipses (70% or 68% CI both common)
+  stat_ellipse(
+    geom  = "polygon", 
+    aes(fill = Group), 
+    level = 0.70, 
+    alpha = 0.3, 
+    show.legend = FALSE
+  ) +
+  # custom colors, shapes
+  scale_color_manual(values = group_colors) +
+  scale_fill_manual(values  = group_colors) +
+  scale_shape_manual(values = group_shapes) +
+  # labels
+  labs(
+    title = "PLS-DA: Allogeneic vs Syngeneic Across Days",
+    x = xlab,
+    y = ylab
+  ) +
+  # minimal but with axis lines
+  theme_minimal(base_size = 18) +
+  theme(
+    legend.position   = "top",
+    legend.title      = element_blank(),
+    axis.title        = element_text(size = 20, face = "bold"),
+    axis.text         = element_text(size = 16, color = "black"),
+    axis.line         = element_line(color = "black", linewidth = 0.8),
+    axis.ticks        = element_line(color = "black"),
+    panel.grid        = element_blank(),
+    plot.title        = element_text(size = 20, face = "bold", hjust = 0.5),
+    plot.margin       = unit(c(10, 40, 10, 10), "pt")  # top, right, bottom, left
+  )
+
+# Get VIP scores
+vip_scores <- vip(plsda_model)
+# Extract only Component 1
+vip_axis1 <- vip_scores[, 1]
+vip_df_axis1 <- data.frame(
+  Gene = rownames(vip_scores),
+  VIP_Axis1 = vip_axis1
+)
+#Sort by descending VIP
+vip_df_axis1 <- vip_df_axis1[order(-vip_df_axis1$VIP_Axis1), ]
+#Save to CSV
+write.csv(vip_df_axis1, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/VIP_scores_AlloVsSyn_PLS1.csv", row.names = FALSE)
+# Rank genes by VIP (descending)
+top100_genes <- names(sort(vip_scores[, 1], decreasing = TRUE))[1:100]
+mat_top100 <- mat[top100_genes, ]
+anno <- data.frame(
+  Group = Y,        # group labels (factor)
+  row.names = colnames(mat_top100)
+)
+
+anno_colors <- list(
+  Group = group_colors   # same color scheme you used before
+)
+
+Y <- factor(Y, levels = c("Allogeneic_7","Syngeneic_7", "Allogeneic_14", "Syngeneic_14"))
+
+# Reorder the columns of the matrix based on group
+sample_order <- order(Y)
+mat_top100_ordered <- mat_top100[, sample_order]
+anno_ordered <- anno[sample_order, , drop = FALSE]
+pheatmap(
+  mat_top100_ordered,
+  scale = "row",                  # row-wise z-score
+  annotation_col = anno_ordered,          # add group annotation
+  annotation_colors = anno_colors,
+  cluster_rows = TRUE,
+  cluster_cols = FALSE,
+  show_rownames = TRUE,
+  show_colnames = FALSE,
+  fontsize_row = 8,
+  fontsize_col = 10,
+  color = colorRampPalette(c("navy", "white", "firebrick3"))(50) # publication-style
+)
+
+## Immune Markers ----
+
+library(DESeq2)
+library(pheatmap)
+library(limma)
+
+
+# Define immune gene list (same as before)
+immune_genes <- c("Cd3d","Cd3e","Cd3g","Cd247","Trac","Trbc1","Trbc2","Cd4","Cd8a","Cd8b1",
+                  "Cd28","Ctla4","Icos","Pdcd1","Lag3","Havcr2","Tnfrsf9","Tnfrsf18","Tnfrsf4","Cd40lg",
+                  "Gzma","Gzmb","Gzmk","Prf1","Ifng","Tnf","Il2",
+                  "Foxp3","Il2ra","Ikzf2","Tnfrsf18","Ly6G",
+                  "Tbx21","Stat4","Ifng","Gata3","Il4","Il5","Il13","Rorc","Il17a","Il17f","Il21","Il22","Bcl6","Cxcr5","Tox",
+                  "Itgax","Zbtb46","Cd80","Cd86","Cd40","H2-Ab1","H2-Aa","H2-Eb1",
+                  "Adgre1","Cd68","Cd14","Itgam","Csf1r","Mrc1","Nos2","Arg1",
+                  "Cd19","Cd79a","Cd79b","Ms4a1","Cd22",
+                  "Ccl2","Ccl5","Cxcl9","Cxcl10","Cxcl11","Cxcr3","Ccr7","Spn")
+
+# immune_genes <- c(
+#   "Cd163","Csf2","C4b","C8a","Cfi",
+#   "Ifi202b","Il24","Ly6c1","Masp2","Mcpt4",
+#   "Plch2","S1pr5","Tac1","Zbtb16"
+# )
+vsd <- vst(dds_IsletTransplant_AlloVsSyn, blind = FALSE)
+mat  <- assay(vsd)
+matc <- removeBatchEffect(mat, batch = colData(vsd)$Batch)
+
+# keep only immune genes from earlier step
+mat_filt   <- matc[rownames(matc) %in% immune_genes, ]
+mat_scaled <- t(scale(t(mat_filt)))
+
+heat_colors <- colorRampPalette(c("navy","white","firebrick3"))(100)
+
+day_vec <- as.character(colData(vsd)$Day)
+group_vec <- as.character(colData(vsd)$Group)
+
+ann_colors <- list(
+  Group = c("Control Rejected" = "#D62728", "Control Accepted" = "#1F77B4"),
+  Day   = c("7" = "gray40", "14" = "gray70")
+)
+
+for (day_sel in c("7","14")) {
+  cols_idx <- which(day_vec == day_sel)
+  
+  # reorder columns: first Control Accepted, then Control Rejected
+  order_idx <- cols_idx[order(group_vec[cols_idx])]
+  mat_day   <- mat_scaled[, order_idx, drop = FALSE]
+  
+  annotation_col <- data.frame(
+    Group = group_vec[order_idx],
+    Day   = day_vec[order_idx]
+  )
+  rownames(annotation_col) <- colnames(mat_day)
+  
+  print(
+    pheatmap(mat_day,
+             color = heat_colors,
+             annotation_col = annotation_col,
+             annotation_colors = ann_colors,
+             cluster_rows = TRUE,
+             cluster_cols = FALSE,   # no column clustering
+             show_rownames = TRUE,
+             show_colnames = TRUE,
+             fontsize_row = 8,
+             main = paste("Immune Gene Expression (Day", day_sel, ")"))
+  )
+}
+
+
+## GSEA Analysis----
+# Paths to your saved results
+d7_path  <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/DESEQResults_Day7_Allo_vs_Syn.csv"
+d14_path <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/DESEQResults_Day14_Allo_vs_Syn.csv"
+
+# Spot-check a known rejection gene (e.g., Ifng) if present:
+d7["Ifng", c("log2FoldChange","stat","padj")]
+d14["Ifng", c("log2FoldChange","stat","padj")]
+
+# Import
+d7  <- read.csv(d7_path,  row.names = 1)
+d14 <- read.csv(d14_path, row.names = 1)
+
+# Build ranked gene lists using DESeq2 Wald stat
+lfc_vector_d7  <- d7$stat;  names(lfc_vector_d7)  <- rownames(d7)
+lfc_vector_d14 <- d14$stat; names(lfc_vector_d14) <- rownames(d14)
+
+# Drop NAs
+lfc_vector_d7  <- lfc_vector_d7[!is.na(lfc_vector_d7)]
+lfc_vector_d14 <- lfc_vector_d14[!is.na(lfc_vector_d14)]
+
+# Sort decreasing (required by clusterProfiler::GSEA)
+lfc_vector_d7  <- sort(lfc_vector_d7,  decreasing = TRUE)
+lfc_vector_d14 <- sort(lfc_vector_d14, decreasing = TRUE)
+
+library(msigdbr)
+library(dplyr)
+
+# --- Collect each set and convert into 2-column (gs_name, gene_symbol) ---
+
+# C8
+CellTypeMSigDB_gene_sets <- msigdbr(species="Mus musculus", category="C8")
+mm_c8_sets <- split(CellTypeMSigDB_gene_sets$gene_symbol, CellTypeMSigDB_gene_sets$gs_name)
+mm_c8_df <- data.frame(
+  gs_name = rep(names(mm_c8_sets), sapply(mm_c8_sets, length)),
+  gene_symbol = unlist(mm_c8_sets)
+)
+
+
+# Hallmark
+hallmark <- msigdbr(species = "Mus musculus", category  = "H")
+mm_h_sets <- split(hallmark$gene_symbol, hallmark$gs_name)
+mm_h_df <- data.frame(
+  gs_name = rep(names(mm_h_sets), sapply(mm_h_sets, length)),
+  gene_symbol = unlist(mm_h_sets)
+)
+
+
+# KEGG
+kegg_all <- msigdbr(species="Mus musculus", category="C2", subcategory="CP:KEGG_LEGACY")
+mm_kegg_sets <- split(kegg_all$gene_symbol, kegg_all$gs_name)
+mm_kegg_df <- data.frame(
+  gs_name = rep(names(mm_kegg_sets), sapply(mm_kegg_sets, length)),
+  gene_symbol = unlist(mm_kegg_sets)
+)
+
+# --- Final combined TERM2GENE data frame ---
+mm_all_df <- rbind(mm_c8_df, mm_h_df, mm_kegg_df)
+
+library(clusterProfiler)
+library(msigdbr)
+# Day 7
+gsea_results_d7 <- GSEA(
+  geneList      = lfc_vector_d7,
+  minGSSize     = 5,
+  maxGSSize     = 500,
+  pvalueCutoff  = 1,
+  eps           = 0,
+  seed          = TRUE,
+  pAdjustMethod = "BH",
+  #keyType       = "SYMBOL",       # <- tell it explicitly
+  TERM2GENE     = mm_all_df
+)
+gsea_results_d7_df <- as.data.frame(gsea_results_d7)
+
+# Day 14
+gsea_results_d14 <- GSEA(
+  geneList      = lfc_vector_d14,
+  minGSSize     = 5,
+  maxGSSize     = 500,
+  pvalueCutoff  = 1,
+  eps           = 0,
+  seed          = TRUE,
+  pAdjustMethod = "BH",
+  TERM2GENE     = mm_all_df
+)
+gsea_results_d14_df <- as.data.frame(gsea_results_d14)
+
+
+# Full results Day 7
+write.csv(gsea_results_d7_df,
+          "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/GSEAResults_AlloVsSyn_Day7.csv",
+          row.names = FALSE)
+
+# Full results Day 14
+write.csv(gsea_results_d14_df,
+          "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/GSEAResults_AlloVsSyn_Day14.csv",
+          row.names = FALSE)
+
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+
+# Your curated list EXACTLY as provided (de-dup just in case)
+immune_master <- unique(c(
+  "HALLMARK_E2F_TARGETS",
+  "HALLMARK_MYC_TARGETS_V2",
+  "KEGG_TRYPTOPHAN_METABOLISM",
+  "KEGG_GLYCINE_SERINE_AND_THREONINE_METABOLISM",
+  "KEGG_PRIMARY_BILE_ACID_BIOSYNTHESIS",
+  "HALLMARK_ALLOGRAFT_REJECTION",
+  "KEGG_GRAFT_VERSUS_HOST_DISEASE",
+  "KEGG_T_CELL_RECEPTOR_SIGNALING_PATHWAY",
+  "KEGG_B_CELL_RECEPTOR_SIGNALING_PATHWAY",
+  "KEGG_NATURAL_KILLER_CELL_MEDIATED_CYTOTOXICITY",
+  "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
+  "HALLMARK_INTERFERON_GAMMA_RESPONSE",
+  "HALLMARK_IL2_STAT5_SIGNALING",
+  "HALLMARK_IL6_JAK_STAT3_SIGNALING",
+  "HALLMARK_TGF_BETA_SIGNALING",
+  "HALLMARK_COMPLEMENT",
+  "HALLMARK_APOPTOSIS",
+  "CUI_DEVELOPING_HEART_C8_MACROPHAGE",
+  "HALLMARK_ANGIOGENESIS",
+  "HALLMARK_HYPOXIA",
+  "HALLMARK_INFLAMMATORY_RESPONSE",
+  "HALLMARK_MTORC1_SIGNALING",
+  "HALLMARK_P53_PATHWAY",
+  "JONES_OVARY_T_CELL",
+  "JONES_OVARY_MACROPHAGE",
+  "DESCARTES_FETAL_INTESTINE_LYMPHOID_CELLS",
+  "DESCARTES_FETAL_LIVER_LYMPHOID_CELLS",
+  "KEGG_ANTIGEN_PROCESSING_AND_PRESENTATION",
+  "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
+  "KEGG_JAK_STAT_SIGNALING_PATHWAY",
+  "KEGG_NOD_LIKE_RECEPTOR_SIGNALING_PATHWAY",
+  "KEGG_TOLL_LIKE_RECEPTOR_SIGNALING_PATHWAY"
+))
+
+# Helper to standardize clusterProfiler GSEA columns
+coerce_gsea_tbl <- function(df, day_label){
+  # try common column names: Description/ID/pathway/setName; p.adjust/padj
+  gs  <- if ("Description" %in% names(df)) df$Description else if ("ID" %in% names(df)) df$ID else if ("pathway" %in% names(df)) df$pathway else if ("setName" %in% names(df)) df$setName else rownames(df)
+  pad <- if ("p.adjust"   %in% names(df)) df$p.adjust   else if ("padj" %in% names(df)) df$padj else df$pval
+  tibble(
+    gs_name = as.character(gs),
+    NES     = as.numeric(df$NES),
+    padj    = as.numeric(pad),
+    Day     = day_label
+  )
+}
+
+# Build tidy tables for each day
+d7_tbl  <- coerce_gsea_tbl(gsea_results_d7_df,  "Day 7")
+d14_tbl <- coerce_gsea_tbl(gsea_results_d14_df, "Day 14")
+
+# Keep ONLY immune_master pathways
+d7_sel  <- d7_tbl  %>% filter(gs_name %in% immune_master)
+d14_sel <- d14_tbl %>% filter(gs_name %in% immune_master)
+
+# Combine and ensure both days present for every pathway
+plot_df <- bind_rows(d7_sel, d14_sel) %>%
+  mutate(Day = factor(Day, levels = c("Day 7","Day 14"))) %>%
+  # create full grid of (gs_name x Day) and fill missing with neutral values
+  complete(gs_name = immune_master, Day,
+           fill = list(NES = 0, padj = 1)) %>%
+  mutate(logp = -log10(padj))
+
+# Order rows nicely (keep your immune_master order or order by category if you prefer)
+plot_df$gs_name <- factor(plot_df$gs_name, levels = rev(immune_master))
+
+# Plot: rows = pathways, columns = Day; size = −log10(padj); color = NES
+p <- ggplot(plot_df, aes(x = Day, y = gs_name)) +
+  geom_point(aes(size = logp, color = NES)) +
+  scale_size_continuous(name = "−log10(padj)", range = c(2, 8)) +
+  scale_color_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0, name = "NES") +
+  labs(x = "", y = "", title = "Enriched Pathways") +
+  theme_bw() +
+  theme(
+    axis.text.y  = element_text(size = 10),
+    axis.text.x  = element_text(size = 14, angle = 45, hjust = 1, face = "bold"),
+    plot.title   = element_text(hjust = 0.5, face = "bold")
+  )
+print(p)
+
+# Save the plotting input (so it’s reproducible)
+outdir <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic"
+write.csv(plot_df, file.path(outdir, "Dotplot_Input_immune_master_Day7_Day14.csv"), row.names = FALSE)
+
+
+## GSVA Analysis----
+library(GSVA)
+library(msigdbr)
+library(limma)
+library(BiocParallel)
+
+vsd  <- vst(dds_IsletTransplant_AlloVsSyn, blind = TRUE)
+expr <- assay(vsd)
+meta <- as.data.frame(colData(dds_IsletTransplant_AlloVsSyn))
+
+# Make sure factors are clean
+meta$Group <- factor(meta$Group, levels = c("Control Accepted", "Control Rejected"))
+meta$Batch <- factor(meta$Batch)
+
+# ------------------ 2) Gene sets ------------------
+c8   <- msigdbr(species="Mus musculus", category="C8")
+hall <- msigdbr(species="Mus musculus", category="H")
+kegg <- msigdbr(species="Mus musculus", category="C2", subcategory="CP:KEGG_LEGACY")
+
+sets <- c(
+  split(c8$gene_symbol,   c8$gs_name),
+  split(hall$gene_symbol, hall$gs_name),
+  split(kegg$gene_symbol, kegg$gs_name)
+)
+
+# ------------------ 3) Subset by Day ------------------
+pick_day <- function(day) which(meta$Day %in% c(day, paste0("Day",day),"D",day))
+
+expr_d7  <- expr[, pick_day(7)]
+expr_d14 <- expr[, pick_day(14)]
+meta_d7  <- meta[pick_day(7),]
+meta_d14 <- meta[pick_day(14),]
+
+# ------------------ 4) GSVA in parallel ------------------
+param <- MulticoreParam(workers = max(1, parallel::detectCores() - 1))
+gsva_par_d7 <- gsvaParam(
+  expr_d7,           # VST matrix
+  sets,            # your gene sets
+  kcdf        = "Gaussian",        # since it's log-like VST data
+  minSize     = 5,
+  maxSize     = 500
+)
+es_d7 <- gsva(gsva_par_d7)
+
+gsva_par_d14 <- gsvaParam(
+  expr_d14,           # VST matrix
+  sets,            # your gene sets
+  kcdf        = "Gaussian",        # since it's log-like VST data
+  minSize     = 5,
+  maxSize     = 500
+)
+es_d14 <- gsva(gsva_par_d14)
+
+# ------------------ 5) limma with batch ------------------
+run_limma <- function(es, meta) {
+  design <- model.matrix(~ 0 + Group + Batch, data = meta)
+  colnames(design) <- make.names(colnames(design))
+  
+  fit  <- lmFit(es, design)
+  contr <- makeContrasts(Rejected_vs_Accepted = GroupControl.Rejected - GroupControl.Accepted,
+                         levels = design)
+  fit2 <- eBayes(contrasts.fit(fit, contr))
+  topTable(fit2, number=Inf, sort.by="P")
+}
+
+GSVA_res_d7  <- run_limma(es_d7,  meta_d7)
+GSVA_res_d14 <- run_limma(es_d14, meta_d14)
+
+# # Save results
+# write.csv(res_d7,  "GSVA_limma_Day7.csv")
+# write.csv(res_d14, "GSVA_limma_Day14.csv")
 
 
 #3.DESEQ Analysis-Rejection with Anti-CD40L vs Without Anti-CD40L ----
