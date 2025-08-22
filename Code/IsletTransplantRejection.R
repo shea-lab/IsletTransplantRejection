@@ -816,401 +816,189 @@ write.csv(es_d14, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogene
 write.csv(GSVA_res_d7,  "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/GSVAStats_AlloVsSyn_Day7.csv")
 write.csv(GSVA_res_d14, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/GSVAStats_AlloVsSyn_Day14.csv")
 
+# 5. Allogeneic  Tolerance Vs Rejected----
 
-#3.DESEQ Analysis-Rejection with Anti-CD40L vs Without Anti-CD40L ----
-unique(meta_combined$Group)
-# Identify the samples to keep (not "Technical Rejection")
-samples_to_keep <- meta_combined$Sample[meta_combined$Group != "Tolerance"]
+# subset samples
+sel <- colData(dds_IsletTransplant)$Group %in% c("Tolerance","Rejected") & colData(dds_IsletTransplant)$Day %in% c(7,14)
+dds_IsletTransplant_RejVsTol <- dds_IsletTransplant[, sel]
 
-# Filter the meta_combined data
-meta_combined_rejected <- meta_combined[meta_combined$Group != "Tolerance", ]
-
-# Filter the combined_counts data to keep only columns corresponding to samples_to_keep
-rejected_counts <- case1_f1[, colnames(case1_f1) %in% samples_to_keep]
-
-# DESeq2 analysis for Rejection Anti-CD40L with vs withour--> Cannot Do Batch
-dds_rejected <- DESeqDataSetFromMatrix(countData = rejected_counts, colData = meta_combined_rejected, design = ~ Group)
-dds_rejected  <- DESeq(dds_rejected)
-results_rejected <- as.data.frame(results(dds_rejected, contrast = c("Group", "Rejection(No Anti-CD40L)", "Rejection(Anti-CD40L)")))
-
-# Load required libraries
-library(ggplot2)
-library(ggrepel)
-
-# Replace NA in pval and padj with 1
-results_rejected$pvalue[is.na(results_rejected$pvalue)] <- 1
-results_rejected$padj[is.na(results_rejected$padj)] <- 1
-
-# Add -log10(p-value)
-results_rejected$logP <- -log10(results_rejected$pvalue)
-
-# Assign significance
-results_rejected$Significance <- ifelse(
-  results_rejected$padj < 0.05 & results_rejected$log2FoldChange > 1, "Upregulated",
-  ifelse(
-    results_rejected$padj < 0.05 & results_rejected$log2FoldChange < -1, "Downregulated",
-    "Not Significant"
-  )
+dds_IsletTransplant_RejVsTol$Batch       <- factor(dds_IsletTransplant_RejVsTol$Batch)
+dds_IsletTransplant_RejVsTol$LibraryPrep <- factor(dds_IsletTransplant_RejVsTol$LibraryPrep)
+dds_IsletTransplant_RejVsTol$Group <- factor(
+  dds_IsletTransplant_RejVsTol$Group,
+  levels = c("Tolerance", "Rejected")  # order sets baseline
 )
-#unique(results_rejected$Significance)
-# Set custom colors for the plot
-# Saving meta_combined dataframe as a CSV file
-write.csv(results_rejected, file = "/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/DEG_RejectedControlVsAntiCD40L_ITx.csv", row.names = FALSE)
+levels(dds_IsletTransplant_RejVsTol$Group)
 
-# Subset data for labeling (most significant genes)
-label_data <- subset(results_rejected, padj < 0.05 & abs(log2FoldChange) > 1)
+dds_IsletTransplant_RejVsTol$Day <- factor(dds_IsletTransplant_RejVsTol$Day,
+                                            levels = c(7, 14))  # baseline = 7
+levels(dds_IsletTransplant_RejVsTol$Day)
 
-# Set custom colors for the plot
-custom_colors <- c("Upregulated" = "red", "Downregulated" = "blue", "Not Significant" = "gray")
+cd <- as.data.frame(colData(dds_IsletTransplant_RejVsTol))
+mm <- model.matrix(~ Batch + LibraryPrep + Day + Group, data = cd)
+qr_mm <- qr(mm)
 
-# Create the volcano plot
-volcano_plot <- ggplot(results_rejected, aes(x = log2FoldChange, y = logP)) +
-  # Add points with different colors for significance
-  geom_point(aes(color = Significance), size = 3, alpha = 0.8) +
-  # Add labels for the most significant points
-  geom_text_repel(
-    data = label_data,
-    aes(label = rownames(label_data)),
-    size = 3,
-    max.overlaps = 20
-  ) +
-  # Customize colors
-  scale_color_manual(values = custom_colors) +
-  # Add vertical and horizontal lines for thresholds
-  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "black") +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black") +
-  # Customize axis labels and title
-  labs(
-    title = "Rejection Control vs Anti-CD40L",
-    x = expression(Log[2] ~ "Fold Change"),  # Subscript for Log2
-    y = expression(-Log[10] ~ "(p-value)"),  # Subscript for Log10
-    color = "Significance"
-  ) +
-  # Customize theme for publication quality
-  theme_minimal(base_size = 14) +
-  theme(
-    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
-    axis.title = element_text(face = "bold", size = 14),
-    legend.position = "top",
-    legend.title = element_text(face = "bold"),
-    legend.text = element_text(size = 12)
-  ) +
-  # Set axis limits (optional)
-  coord_cartesian(xlim = c(-6, 6), ylim = c(0, max(results_rejected$logP, na.rm = TRUE)))
+kept    <- colnames(mm)[qr_mm$pivot[seq_len(qr_mm$rank)]]
+dropped <- if (qr_mm$rank < ncol(mm)) colnames(mm)[qr_mm$pivot[(qr_mm$rank+1):ncol(mm)]] else character()
 
-# Display the plot
-print(volcano_plot)
+kept
+dropped
 
-#4.DESEQ Analysis-Rejection with Anti-CD40L vs Tolerance Anti-CD40L ----
-unique(meta_combined$Group)
-# Identify the samples to keep (not "Technical Rejection")
-samples_to_keep <- meta_combined$Sample[meta_combined$Group != "Rejection(No Anti-CD40L)"]
+#Design Formula
+design(dds_IsletTransplant_RejVsTol) <- ~ Batch + Day + Group + Day:Group
+dds_IsletTransplant_RejVsTol <- DESeq(dds_IsletTransplant_RejVsTol)
+design(dds_IsletTransplant_RejVsTol)
+resultsNames(dds_IsletTransplant_RejVsTol)
 
-# Filter the meta_combined data
-meta_combined_tol <- meta_combined[meta_combined$Group != "Rejection(No Anti-CD40L)", ]
+# Day 7
+res_REJvTOL_D7 <- results(dds_IsletTransplant_RejVsTol,
+                           name = "Group_Rejected_vs_Tolerance")
 
-# Filter the combined_counts data to keep only columns corresponding to samples_to_keep
-tol_counts <- case1_f1[, colnames(case1_f1) %in% samples_to_keep]
+# Day 14
+res_REJvTOL_D14 <- results(dds_IsletTransplant_RejVsTol,
+                            list(c("Group_Rejected_vs_Tolerance",
+                                   "Day14.GroupRejected")))
 
-# DESeq2 analysis for Rejection Anti-CD40L vs Tolerance
-dds_tol <- DESeqDataSetFromMatrix(countData = tol_counts, colData = meta_combined_tol, design = ~ Batch+Group)
-dds_tol  <- DESeq(dds_tol)
-results_tol <- as.data.frame(results(dds_tol, contrast = c("Group", "Rejection(Anti-CD40L)", "Tolerance")))
+# Interactions
+res_interaction_df_REJvTOL <- results(dds_IsletTransplant_RejVsTol,
+                           name = "Day14.GroupRejected")
+res_interaction_df_REJvTOL <- as.data.frame(res_interaction_df_REJvTOL)
+res_interaction_df_REJvTOL$gene <- rownames(res_interaction_df_REJvTOL)
 
-# Load required libraries
-library(ggplot2)
-library(ggrepel)
+summary(res_REJvTOL_D7)
+summary(res_REJvTOL_D14)
 
-# Replace NA in pval and padj with 1
-results_tol$pvalue[is.na(results_tol$pvalue)] <- 1
-results_tol$padj[is.na(results_tol$padj)] <- 1
+library(EnhancedVolcano)
 
-# Add -log10(p-value)
-results_tol$logP <- -log10(results_tol$pvalue)
+# Thresholds
+q_cut  <- 0.10
+fc_cut <- 1
 
-# Assign significance
-results_tol$Significance <- ifelse(
-  results_tol$padj < 0.05 & results_tol$log2FoldChange > 1, "Upregulated",
-  ifelse(
-    results_tol$padj < 0.05 & results_tol$log2FoldChange < -1, "Downregulated",
-    "Not Significant"
-  )
-)
-unique(results_tol$Significance)
-# Set custom colors for the plot
-write.csv(results_tol, file = "/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/DEG_RejectedVsTolerance_WithAntiCD40L_ITx.csv", row.names = FALSE)
+library(EnhancedVolcano)
 
-# Subset data for labeling (most significant genes)
-label_data <- subset(results_tol, padj < 0.05 & abs(log2FoldChange) > 1)
+## 0) Prep results as data.frames with a 'gene' column
+d7_REJVSTOL  <- as.data.frame(res_REJvTOL_D7);  d7_REJVSTOL$gene  <- rownames(res_REJvTOL_D7)
+d14_REJVSTOL <- as.data.frame(res_REJvTOL_D14); d14_REJVSTOL$gene <- rownames(res_REJvTOL_D14)
 
-# Set custom colors for the plot
-custom_colors <- c("Upregulated" = "red", "Downregulated" = "blue", "Not Significant" = "gray")
+write.csv(d7_REJVSTOL, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsRejection_AntiCD40LTreated/DESEQResults_Day7_Rejection_vs_Tolerance.csv", row.names = TRUE)
+write.csv(d14_REJVSTOL, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsRejection_AntiCD40LTreated/DESEQResults_Day14_Rejection_vs_Tolerancen.csv", row.names = TRUE)
+write.csv(res_interaction_df_REJvTOL, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsRejection_AntiCD40LTreated/DESEQResults_InteractionTimeGroup_Rejection_vs_Tolerance.csv", row.names = TRUE)
 
-# Create the volcano plot
-volcano_plot <- ggplot(results_tol, aes(x = log2FoldChange, y = logP)) +
-  # Add points with different colors for significance
-  geom_point(aes(color = Significance), size = 3, alpha = 0.8) +
-  # Add labels for the most significant points
-  geom_text_repel(
-    data = label_data,
-    aes(label = rownames(label_data)),
-    size = 3,
-    max.overlaps = 30
-  ) +
-  # Customize colors
-  scale_color_manual(values = custom_colors) +
-  # Add vertical and horizontal lines for thresholds
-  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "black") +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black") +
-  # Customize axis labels and title
-  labs(
-    title = "Rejection vs Tolerance",
-    x = expression(Log[2] ~ "Fold Change"),  # Subscript for Log2
-    y = expression(-Log[10] ~ "(p-value)"),  # Subscript for Log10
-    color = "Significance"
-  ) +
-  # Customize theme for publication quality
-  theme_minimal(base_size = 14) +
-  theme(
-    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
-    axis.title = element_text(face = "bold", size = 14),
-    legend.position = "top",
-    legend.title = element_text(face = "bold"),
-    legend.text = element_text(size = 12)
-  ) +
-  # Set axis limits (optional)
-  coord_cartesian(xlim = c(-8, 4), ylim = c(0, max(results_tol$logP, na.rm = TRUE)))
-
-# Display the plot
-print(volcano_plot)
-unique(meta_combined$Day)
-
-#5. Preprocesing for Elastic Net---- 
-case1_EN <- flexiDEG.function1(combined_counts, meta_combined, # Run Function 1
-                               convert_genes = F, exclude_riken = T, exclude_pseudo = F,
-                               batches = T, quality = T, variance = F,use_pseudobulk = F) # Select filters: 2, 0, 15
-
-rows_to_remove <- grep("^Gm[0-9]", rownames(case1_EN))
-# Remove those rows from case1_f1
-case1_EN <- case1_EN[-rows_to_remove, ]
-# meta_combined <- meta_combined %>%
-#   mutate(Group = case_when(
-#     Group %in% c("Healthy_7", "Healthy_14") ~ "Early",
-#     Group == "Healthy_28" ~ "Intermediate",
-#    
-case2_EN <- flexiDEG.function2(case1_EN, meta_combined) # Run Function 2
-
-dev.off()
-heatmap.2(as.matrix(case2_EN), scale="row", col=coul_gsva, key= T, xlab="", ylab="", 
-          margins=c(7,7), ColSideColors=colSide, trace="none", key.title=NA, 
-          key.ylab=NA, keysize=0.8, dendrogram="both",  cexRow = 1.2,  # Increase the size of y-axis text (row labels)
-          cexCol = 1.2   # (Optional) Adjust the size of x-axis text (column labels)
-)
-ggbiplot(prcomp(t(case2_EN), scale.=T), ellipse=T, groups=names(colSide), var.axes=F, 
-         var.scale=1, circle=T) + 
-  theme_classic() + scale_color_manual(name="Group", values=colSide)
-
-#case1_f3 <- flexiDEG.function3(case1_f2, meta_combined, fdr_cutoff = 1, logfc_cutoff = 2.5) # Run Function 3       ++++ Doesn't seem to be working correctly
-# Gene Clustering
-# Double Volcano
-# Identify rows that start with "Gm" followed by any digit (0-9)
-
-
-# case1_f4 <- flexiDEG.function4(case1_f2, meta_combined,validation_option = 1) # Run Function 4
-# ENplots <- flexiDEG.ENplots(case1_f1, case1_f4, colSide, unique_colSide) # Generate PCA plots
-# ggarrange(plotlist = ENplots, ncol=5, nrow=4) # Plots in 5 cols & 4 rows
-# # Collect EN results
-# EN1 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[1]])]), ]) 
-# EN.95 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[2]])]), ]) 
-# EN.9 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[3]])]), ]) 
-# EN.85 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[4]])]), ])
-# EN.8 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[5]])]), ]) 
-# EN.75 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[6]])]), ]) 
-# EN.7 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[7]])]), ]) 
-# EN.65 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[8]])]), ]) 
-# EN.6 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[9]])]), ])
-# EN.55 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[10]])]), ]) 
-# EN.5 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[11]])]), ]) 
-# EN.45 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[12]])]), ]) 
-# EN.4 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[13]])]), ]) 
-# EN.35 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[14]])]), ]) 
-# EN.3 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[15]])]), ]) 
-# EN.25 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[16]])]), ]) 
-# EN.2 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[17]])]), ]) 
-# EN.15 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[18]])]), ]) 
-# EN.1 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[19]])]), ]) 
-# EN.05 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[20]])]), ]) 
-# EN.0 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[21]])]), ]) 
-
-#6. Pre-hoc Biology-All Groups ---- 
-getwd() 
-sample_set <- "Case1ph" 
-currentDate <- Sys.Date()
-save_name <- paste(currentDate, sample_set)
-
-#sets_celltype <- msigdbr(species="Mus musculus", category="C8") # Large df w/ categories
-#wl_celltype <- split(sets_celltype$gene_symbol, # Genes to split into pathways, by ensembl
-#                      sets_celltype$gs_name) # Pathway names
-pwl_msigdbr <- c(pwl_hallmark, pwl_kegg) # Compile them all
-
-case1_EN<-as.matrix(case1_EN)# Change dataframe to matrix
-is.matrix(case1_EN) # GSVA needs data as matrix w/ genes as rownames; Must be TRUE to proceed
-gsvapar<-gsvaParam(case1_EN, c(pwl_msigdbr), maxDiff=TRUE,minSize=3)
-gsva_case1 <- gsva(gsvapar)
-
-gsva_case1<-as.data.frame(gsva_case1) # Convert to dataframe
-# gsvaf2 <- flexiDEG.function2(gsva_case1, meta_combined) # Run Function 2
-# dev.off()  # Close any open graphics devices
+# Function to create color mapping
+make_keyvals_fdr_fc_TolvsRej <- function(df, q = 0.10, fc = 1,
+                                          col_up = "#D62728", col_down = "#1F77B4", col_ns = "gray70") {
+  # valid stats (for coloring); everything else becomes NS
+  ok   <- !is.na(df$padj) & !is.na(df$log2FoldChange)
+  
+  up   <- ok & df$padj < q & df$log2FoldChange >=  fc
+  down <- ok & df$padj < q & df$log2FoldChange <= -fc
+  
+  # default color + label
+  key   <- rep(col_ns, nrow(df))
+  label <- rep("Not significant", nrow(df))
+  
+  # overwrite where significant
+  key[up]   <- col_up
+  key[down] <- col_down
+  
+  label[up]   <- paste0("Rejection-Upregulated")
+  label[down] <- paste0("Tolerance-Upregulated")
+  
+  names(key) <- label        # <- legend labels; no NAs
+  key
+}
+keyvals_d7  <- make_keyvals_fdr_fc_TolvsRej(d7_REJVSTOL)
+keyvals_d14 <- make_keyvals_fdr_fc_TolvsRej(d14_REJVSTOL)
 
 library(dplyr)
-
-# meta_combined <- meta_combined %>%
-#   mutate(Group = case_when(
-#     Group %in% c("Healthy_7", "Healthy_14") ~ "Early",
-#     Group == "Healthy_28" ~ "Intermediate",
-#     Group %in% c("Healthy_42", "Healthy_56") ~ "Late",
-#     TRUE ~ Group  # Keep other values unchanged
-#   ))
-# Color palettes
-coul <- colorRampPalette(brewer.pal(11, "RdBu"))(100) # Palette for gene heatmaps
-coul_gsva <- colorRampPalette(brewer.pal(11, "PRGn"))(100) # Palette for gsva heatmaps
-colSide <- flexiDEG.colors(meta_combined)
-unique_colSide <- unique(colSide)
-dev.off()
-heatmap.2(as.matrix(gsva_case1), scale="row", col=coul_gsva, key= T, xlab="", ylab="", 
-          margins=c(7,35), ColSideColors=colSide, trace="none", key.title=NA, 
-          key.ylab=NA, keysize=0.8, dendrogram="both",
-          cexRow = 1.2,  # Increase font size for row labels
-          cexCol = 0.8)   # Increase font size for column labels)
-
-
-
-#7.CellTypes GSVA----
-
-#BiocManager::install("clusterProfiler")
-library(clusterProfiler)
-biocarta_gene_sets <- msigdbr(species="Mus musculus", category="C8") # Large df w/ categories
-mm_celltype_sets <- split(biocarta_gene_sets$gene_symbol, # Genes to split into pathways, by ensembl
-                          biocarta_gene_sets$gs_name) # Pathway names
-
-case1_EN<-as.matrix(case1_EN)# Change dataframe to matrix
-is.matrix(case1_EN) # GSVA needs data as matrix w/ genes as rownames; Must be TRUE to proceed
-gsvapar_celltype<-gsvaParam(case1_EN, c(mm_celltype_sets), maxDiff=TRUE,minSize=3)
-gsva_celltype <- gsva(gsvapar_celltype)
-
-gsva_celltype<-as.data.frame(gsva_celltype) # Convert to dataframe
-gsvaf_celltype <- flexiDEG.function2(gsva_celltype, meta_combined) # Run Function 2
-# dev.off()  # Close any open graphics devices
-library(dplyr)
-
-# Color palettes
-coul <- colorRampPalette(brewer.pal(11, "RdBu"))(100) # Palette for gene heatmaps
-coul_gsva <- colorRampPalette(brewer.pal(11, "PRGn"))(100) # Palette for gsva heatmaps
-colSide <- flexiDEG.colors(meta_combined)
-unique_colSide <- unique(colSide)
-dev.off()
-heatmap.2(as.matrix(gsvaf_celltype), scale="row", col=coul_gsva, key= T, xlab="", ylab="", 
-          margins=c(7,40), ColSideColors=colSide, trace="none", key.title=NA, 
-          key.ylab=NA, keysize=0.8, dendrogram="both",
-          cexRow = 1,  # Increase font size for row labels
-          cexCol = 0.8)   # Increase font size for column labels)
-
-
-#8. Opertional Tolerance-Elastic Net ----
-
-meta_combined$TimewiseGroup <- ifelse(
-  meta_combined$Group == "Tolerance",
-  paste(meta_combined$Group, meta_combined$Day, sep = "_"),
-  meta_combined$Group
-)
-unique(meta_combined$TimewiseGroup)
-
-# Filter out samples that are not in the unwanted groups
-samples_to_keep <- !meta_combined$Group %in% c("Rejection(No Anti-CD40L)", "Rejection(Anti-CD40L)")
-
-# Update meta_combined to exclude the unwanted samples
-meta_combined_filtered <- meta_combined[samples_to_keep, ]
-
-# Update case1_EN to exclude the corresponding columns
-case1_EN_filtered <- case1_EN[, samples_to_keep]
-case1_EN_filtered <-as.data.frame(case1_EN_filtered)
-
-
-# Step 1: Identify Day 7 samples
-day7_samples <- meta_combined_filtered$Day == "7"
-
-# Step 2: Compute normalization factors
-# Assuming `case1_EN_filtered` contains numeric data with samples as columns
-# Calculate the mean expression values for Day 7 samples
-day7_means <- rowMeans(case1_EN_filtered[, day7_samples], na.rm = TRUE)
-
-# Step 3: Normalize other samples to Day 7
-# Divide each column by the Day 7 mean (row-wise operation)
-normalized_case1_EN_filtered <- case1_EN_filtered
-for (sample in 1:ncol(normalized_case1_EN_filtered)) {
-  normalized_case1_EN_filtered[, sample] <- normalized_case1_EN_filtered[, sample] / day7_means
+pick_labels <- function(df, q = 0.10, fc = 1, topN = 30) {
+  idx <- which(!is.na(df$padj) & !is.na(df$log2FoldChange) &
+                 df$padj < q & abs(df$log2FoldChange) >= fc)
+  if (length(idx) == 0) return(character(0))
+  ord <- order(df$padj[idx], -abs(df$log2FoldChange[idx]), na.last = NA)  # tie-break by |LFC|
+  labs <- df$gene[idx][ord]
+  labs <- make.unique(labs)  # avoid dup labels
+  labs[seq_len(min(topN, length(labs)))]
 }
 
+selLab_d7_REJVSTOL  <- pick_labels(d7_REJVSTOL,  q_cut, fc_cut, 30)
+selLab_d14_REJVSTOL <- pick_labels(d14_REJVSTOL, q_cut, fc_cut, 30)
 
 
-# Normalized data is ready in `normalized_case1_EN_filtered`
+## 3) Axis limits
+xmax_d7  <- max(2, ceiling(max(abs(d7_REJVSTOL$log2FoldChange),  na.rm=TRUE)))
+xmax_d14 <- max(2, ceiling(max(abs(d14_REJVSTOL$log2FoldChange), na.rm=TRUE)))
 
-meta_combined_filtered$Stage <- with(meta_combined_filtered, ifelse(
-  TimewiseGroup %in% c("Tolerance_14"), "Early",
-  ifelse(TimewiseGroup == "Tolerance_28", "Intermediate",
-         ifelse(TimewiseGroup %in% c("Tolerance_42", "Tolerance_56"), "Late",
-                ifelse(TimewiseGroup == "Tolerance_70", "End Timepoint", NA)
-         )
-  )
-))
-
-
-unique(meta_combined_filtered$Stage)
-meta_combined_filtered$Group<-meta_combined_filtered$Stage
-
-# Filter out samples that are not in the unwanted groups
-samples_to_keep <- !meta_combined_filtered$TimewiseGroup %in% c("Tolerance_7","Tolerance_70")
-
-# Update meta_combined to exclude the unwanted samples
-meta_combined_filtered <- meta_combined_filtered[samples_to_keep, ]
-meta_combined_filtered 
-# Update case1_EN to exclude the corresponding columns
-normalized_case1_EN_filtered <- normalized_case1_EN_filtered[, samples_to_keep]
-normalized_case1_EN_filtered <-as.data.frame(normalized_case1_EN_filtered)
-meta_combined_filtered$Group<-meta_combined_filtered$Day
-case2_EN_filtered <- flexiDEG.function2(normalized_case1_EN_filtered, meta_combined_filtered) # Run Function 2
-coul <- colorRampPalette(brewer.pal(11, "RdBu"))(100) # Palette for gene heatmaps
-coul_gsva <- colorRampPalette(brewer.pal(11, "PRGn"))(100) # Palette for gsva heatmaps
-colSide <- flexiDEG.colors(meta_combined_filtered)
-unique_colSide <- unique(colSide)
-unique(meta_combined_filtered$Group)
-
-case4_EN_filtered <- flexiDEG.function4(case2_EN_filtered, meta_combined_filtered,validation_option = 1) # Run Function 4-,validation_option = 1
-
-EN1 <- na.omit(normalized_case1_EN_filtered[unique(rownames(normalized_case1_EN_filtered)[as_vector(case4_EN_filtered[[1]])]), ]) 
-EN2 <- na.omit(normalized_case1_EN_filtered[unique(rownames(normalized_case1_EN_filtered)[as_vector(case4_EN_filtered[[2]])]), ]) 
-EN3 <- na.omit(normalized_case1_EN_filtered[unique(rownames(normalized_case1_EN_filtered)[as_vector(case4_EN_filtered[[3]])]), ]) 
-EN4 <- na.omit(normalized_case1_EN_filtered[unique(rownames(normalized_case1_EN_filtered)[as_vector(case4_EN_filtered[[4]])]), ]) 
-EN7 <- na.omit(normalized_case1_EN_filtered[unique(rownames(normalized_case1_EN_filtered)[as_vector(case4_EN_filtered[[7]])]), ]) 
-
-dev.off()
-heatmap.2(as.matrix(EN3), scale="row", col=coul_gsva, key= T, xlab="", ylab="", 
-          margins=c(7,7), ColSideColors=colSide, trace="none", key.title=NA, 
-          key.ylab=NA, keysize=0.8, dendrogram="both",  cexRow = 1.2,  # Increase the size of y-axis text (row labels)
-          cexCol = 1.2   # (Optional) Adjust the size of x-axis text (column labels)
+## Volcano: Day 7----
+EnhancedVolcano(
+  d7_REJVSTOL,
+  lab           = d7_REJVSTOL$gene,
+  x             = "log2FoldChange",
+  y             = "padj",
+  pCutoff       = 0.10,          # FDR threshold
+  FCcutoff      = 1,
+  xlab          = expression("log"[2]*"(Fold Change)"),
+  ylab          = expression("-log"[10]*"(FDR)"),
+  title         = "Rejection vs Tolerance — Day 7",
+  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(d7$padj<0.10 & abs(d7$log2FoldChange)>=1, na.rm=TRUE), ")"),
+  xlim          = c(-xmax_d7, xmax_d7),
+  ylim = c(0,6),
+  boxedLabels   = TRUE,
+  pointSize     = 3,
+  labSize       = 6,
+  colAlpha      = 0.8,
+  drawConnectors= TRUE,
+  max.overlaps = 15,
+  colCustom     = keyvals_d7,
+  legendPosition= "right",
+  selectLab     = selLab_d7_REJVSTOL
 )
-ggbiplot(prcomp(t(EN7), scale.=T), ellipse=T, groups=names(colSide), var.axes=F, 
-         var.scale=1, circle=T) + 
-  theme_classic() + scale_color_manual(name="Group", values=colSide)
 
-#case1_f3 <- flexiDEG.function3(case1_f2, meta_combined, fdr_cutoff = 1, logfc_cutoff = 2.5) # Run Function 3       ++++ Doesn't seem to be working correctly
-# Gene Clustering
-# Double Volcano
-# Identify rows that start with "Gm" followed by any digit (0-9)
+## Volcano: Day 14----
+EnhancedVolcano(
+  d14_REJVSTOL,
+  lab           = d14_REJVSTOL$gene,
+  x             = "log2FoldChange",
+  y             = "padj",
+  pCutoff       = 0.10,
+  FCcutoff      = 1,
+  xlab          = expression("log"[2]*"(Fold Change)"),
+  ylab          = expression("-log"[10]*"(FDR)"),
+  title         = "Rejection vs Tolerance — Day 14",
+  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(d14$padj<0.10 & abs(d14$log2FoldChange)>=1, na.rm=TRUE), ")"),
+  xlim          = c(-xmax_d14, xmax_d14),
+  ylim = c(0,9),
+  boxedLabels   = TRUE,
+  pointSize     =3,
+  labSize       = 6,
+  colAlpha      = 0.8,
+  max.overlaps = 30,
+  drawConnectors= TRUE,
+  colCustom     = keyvals_d14,
+  legendPosition= "right",
+  selectLab     = selLab_d14_REJVSTOL
+)
+
+## Interactions- Day x Group----
+EnhancedVolcano(res_interaction_df_REJvTOL,
+                lab = rownames(res_interaction_df_REJvTOL),
+                pCutoff       = 0.10,
+                FCcutoff      = 1,
+                ylim = c(0,4),
+                boxedLabels   = TRUE,
+                pointSize     =3,
+                labSize       = 6,
+                colAlpha      = 0.8,
+                max.overlaps = 15,
+                drawConnectors= TRUE,
+                legendPosition= "right",
+                x = "log2FoldChange",
+                y = "padj",
+                xlab          = expression("log"[2]*"(Fold Change)"),
+                ylab          = expression("-log"[10]*"(FDR)"),
+                title = "Interaction: (Day 14 vs 7) × (Rej vs Tol)")
 
 
-# case1_f4 <- flexiDEG.function4(case1_f2, meta_combined,validation_option = 1) # Run Function 4
-# ENplots <- flexiDEG.ENplots(case1_f1, case1_f4, colSide, unique_colSide) # Generate PCA plots
-# ggarrange(plotlist = ENplots, ncol=5, nrow=4) # Plots in 5 cols & 4 rows
-# # Collect EN results
-# EN1 <- na.omit(case1_f1[unique(rownames(case1_f1)[as_vector(case1_f4[[1]])]), ]) 
+
+
+
