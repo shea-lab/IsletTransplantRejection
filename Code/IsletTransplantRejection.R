@@ -998,7 +998,193 @@ EnhancedVolcano(res_interaction_df_REJvTOL,
                 ylab          = expression("-log"[10]*"(FDR)"),
                 title = "Interaction: (Day 14 vs 7) × (Rej vs Tol)")
 
+## Timepoints Combined----
+
+design(dds_IsletTransplant_RejVsTol) <- ~ Batch + Day + Group
+dds_IsletTransplant_RejVsTol <- DESeq(dds_IsletTransplant_RejVsTol)
+resultsNames(dds_IsletTransplant_RejVsTol)
+
+# Combined Timrpoints
+res_REJvTOL_ALL <- results(dds_IsletTransplant_RejVsTol,
+                          name = "Group_Rejected_vs_Tolerance")
+
+summary(res_REJvTOL_ALL)
 
 
+library(EnhancedVolcano)
+
+# Thresholds
+q_cut  <- 0.10
+fc_cut <- 1
+
+library(EnhancedVolcano)
+
+## 0) Prep results as data.frames with a 'gene' column
+ALL_REJVSTOL  <- as.data.frame(res_REJvTOL_ALL);  ALL_REJVSTOL$gene  <- rownames(res_REJvTOL_ALL)
+
+write.csv(ALL_REJVSTOL, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsRejection_AntiCD40LTreated/DESEQResults_Day7_14_Combined_Rejection_vs_Tolerance.csv", row.names = TRUE)
+
+
+keyvals_ALL  <- make_keyvals_fdr_fc_TolvsRej(ALL_REJVSTOL)
+
+library(dplyr)
+
+selLab_ALL_REJVSTOL  <- pick_labels(ALL_REJVSTOL,  q_cut, fc_cut, 30)
+
+
+## 3) Axis limits
+xmax_ALL  <- max(2, ceiling(max(abs(ALL_REJVSTOL$log2FoldChange),  na.rm=TRUE)))
+
+EnhancedVolcano(
+  ALL_REJVSTOL,
+  lab           = ALL_REJVSTOL$gene,
+  x             = "log2FoldChange",
+  y             = "padj",
+  pCutoff       = 0.10,          # FDR threshold
+  FCcutoff      = 1,
+  xlab          = expression("log"[2]*"(Fold Change)"),
+  ylab          = expression("-log"[10]*"(FDR)"),
+  title         = "Rejection vs Tolerance — Combined Timepoints",
+  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(d7$padj<0.10 & abs(d7$log2FoldChange)>=1, na.rm=TRUE), ")"),
+  xlim          = c(-xmax_ALL, xmax_ALL),
+  ylim = c(0,8),
+  boxedLabels   = TRUE,
+  pointSize     = 3,
+  labSize       = 6,
+  colAlpha      = 0.8,
+  drawConnectors= TRUE,
+  max.overlaps = 35,
+  colCustom     = keyvals_ALL,
+  legendPosition= "right",
+  selectLab     = selLab_ALL_REJVSTOL
+)
+
+## PLSDA Analysis-Combined Timepoints ----
+
+library(DESeq2)
+library(limma)
+library(mixOmics)
+library(ggplot2)
+library(ComplexHeatmap)
+library(circlize)
+
+# --- Build the 4-group label from your fitted object ---
+CountsRejVsTol <- as.data.frame(colData(dds_IsletTransplant_RejVsTol))
+
+# --- Variance-stabilized expression ---
+vsd <- vst(dds_IsletTransplant_RejVsTol, blind = FALSE)
+mat <- assay(vsd)  # genes x samples
+# --- Remove batch (for visualization only) ---
+mat_corr <- removeBatchEffect(mat, batch = colData(vsd)$Batch)
+
+# --- PLS-DA input: samples x genes ---
+X <- t(mat_corr)   # samples in rows
+Y <- CountsRejVsTol$Group        # factor with 4 levels
+
+set.seed(123)
+plsda_model <- mixOmics::plsda(X, Y, ncomp = 2)
+
+# Scores for LV1 & LV2
+scores <- plsda_model$variates$X
+plot_df <- data.frame(
+  LV1   = scores[, 1],
+  LV2   = scores[, 2],
+  Group = Y
+)
+
+
+group_colors <- c(
+  "Rejected"  = "#D62728",  # base red
+  "Tolerance"  = "#08306B"  # darker shade of blue (navy/steel blue)
+)
+group_shapes <- c(
+  "Rejected"  = 16,
+  "Tolerance"   = 15
+)
+
+
+expl_var <- round(plsda_model$prop_expl_var$X * 100, 1)  # % explained variance for X
+xlab <- paste0("PLS Component 1 (", expl_var[1], "%)")
+ylab <- paste0("PLS Component 2 (", expl_var[2], "%)")
+
+# 2D PLS-DA plot (LV1 vs LV2) with filled ellipses
+ggplot(plot_df, aes(x = LV1, y = LV2, color = Group, shape = Group)) +
+  # points
+  geom_point(size = 5, alpha = 0.9) +
+  # filled confidence ellipses (70% or 68% CI both common)
+  stat_ellipse(
+    geom  = "polygon", 
+    aes(fill = Group), 
+    level = 0.70, 
+    alpha = 0.3, 
+    show.legend = FALSE
+  ) +
+  # custom colors, shapes
+  scale_color_manual(values = group_colors) +
+  scale_fill_manual(values  = group_colors) +
+  scale_shape_manual(values = group_shapes) +
+  # labels
+  labs(
+    title = "PLS-DA: Rejection vs Tolerance",
+    x = xlab,
+    y = ylab
+  ) +
+  # minimal but with axis lines
+  theme_minimal(base_size = 18) +
+  theme(
+    legend.position   = "top",
+    legend.title      = element_blank(),
+    axis.title        = element_text(size = 20, face = "bold"),
+    axis.text         = element_text(size = 16, color = "black"),
+    axis.line         = element_line(color = "black", linewidth = 0.8),
+    axis.ticks        = element_line(color = "black"),
+    panel.grid        = element_blank(),
+    plot.title        = element_text(size = 20, face = "bold", hjust = 0.5),
+    plot.margin       = unit(c(10, 40, 10, 10), "pt")  # top, right, bottom, left
+  )
+
+# Get VIP scores
+vip_scores <- vip(plsda_model)
+# Extract only Component 1
+vip_axis1 <- vip_scores[, 1]
+vip_df_axis1 <- data.frame(
+  Gene = rownames(vip_scores),
+  VIP_Axis1 = vip_axis1
+)
+#Sort by descending VIP
+vip_df_axis1 <- vip_df_axis1[order(-vip_df_axis1$VIP_Axis1), ]
+#Save to CSV
+write.csv(vip_df_axis1, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsRejection_AntiCD40LTreated/VIP_scores_RejVsTol_PLS1.csv", row.names = FALSE)
+# Rank genes by VIP (descending)
+top100_genes <- names(sort(vip_scores[, 1], decreasing = TRUE))[1:100]
+mat_top100 <- mat_corr[top100_genes, ]
+anno <- data.frame(
+  Group = Y,        # group labels (factor)
+  row.names = colnames(mat_top100)
+)
+
+anno_colors <- list(
+  Group = group_colors   # same color scheme you used before
+)
+
+Y <- factor(Y, levels = c("Tolerance","Rejected"))
+
+# Reorder the columns of the matrix based on group
+sample_order <- order(Y)
+mat_top100_ordered <- mat_top100[, sample_order]
+anno_ordered <- anno[sample_order, , drop = FALSE]
+pheatmap(
+  mat_top100_ordered,
+  scale = "row",                  # row-wise z-score
+  annotation_col = anno_ordered,          # add group annotation
+  annotation_colors = anno_colors,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  show_rownames = TRUE,
+  show_colnames = FALSE,
+  fontsize_row = 8,
+  fontsize_col = 10,
+  color = colorRampPalette(c("navy", "white", "firebrick3"))(50) # publication-style
+)
 
 
