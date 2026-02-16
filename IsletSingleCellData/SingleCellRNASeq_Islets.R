@@ -230,55 +230,74 @@ DotPlot(
   RotatedAxis() +
   scale_color_gradient(low = "grey80", high = "red")
 
-# Further Cluster Analysis for Annotation
+# Further Cluster Analysis for Annotation- start
 features_to_extract <- c("Cd4", "Cd8a", "Foxp3")
 p <- DotPlot(
   NK_TCell,
   features = features_to_extract,
-  idents = c(1, 8, 10)
+  idents = c(4, 7, 9)
 )
 dotplot_data <- p$data
 
-# 3. Set default assay back to SCT
-DefaultAssay(NK_TCell) <- "SCT"
-
-# 4. Prep for FindMarkers
-NK_TCell <- PrepSCTFindMarkers(NK_TCell)
-
-# 5. Run FindMarkers
-NK_TCell.markers <- FindMarkers(NK_TCell, ident.1 = 1, only.pos = TRUE)
-
 DefaultAssay(NK_TCell) <- "SCT"
 NK_TCell <- PrepSCTFindMarkers(NK_TCell)
-# Correct
-NK_TCell.markers <- FindMarkers(NK_TCell, ident.1 = 1, only.pos = TRUE)
-# Further Cluster Analysis for Annotation
+
+cluster4.markers <- FindMarkers(NK_TCell, ident.1 = 4, only.pos = TRUE)
+head(cluster4.markers, n = 5)
+#                p_val avg_log2FC pct.1 pct.2 p_val_adj
+# 2810417H13Rik      0   6.000251 0.976 0.039         0
+# Birc5              0   5.358028 0.931 0.042         0
+# Cks1b              0   4.707019 0.942 0.064         0
+# Stmn1              0   4.854362 0.997 0.131         0
+# Mki67              0   5.224568 0.960 0.111         0
+
+cluster7.markers <- FindMarkers(NK_TCell, ident.1 = 7, only.pos = TRUE)
+head(cluster7.markers, n = 5)
+#         p_val          avg_log2FC  pct.1  pct.2  p_val_adj
+# Prkcdbp 2.493809e-20   4.002253    0.106  0.015  3.461906e-16
+# Ckap4   1.110139e-16   4.426637    0.086  0.012  1.541095e-12
+# Bok     3.351234e-16   4.667646    0.056  0.005  4.652183e-12
+# Prlr    5.225256e-16   4.552168    0.040  0.002  7.253700e-12
+# Tpm2    8.722613e-16   3.895989    0.126  0.026  1.210873e-11
+
+cluster9.markers <- FindMarkers(NK_TCell, ident.1 = 9, only.pos = TRUE)
+head(cluster9.markers, n = 5)
+#                p_val avg_log2FC pct.1 pct.2     p_val_adj
+# Hivep3 4.407666e-123   3.757219 0.671 0.087 6.118722e-119
+# Bdh2    1.685760e-86   5.110816 0.187 0.006  2.340172e-82
+# Ptprs   4.864369e-70   3.093951 0.445 0.062  6.752718e-66
+# Lag3    1.286647e-69   2.560693 0.652 0.145  1.786124e-65
+# Cd200   1.312366e-68   3.019954 0.542 0.099  1.821827e-64
+
+# Further Cluster Analysis for Annotation- end
 
 # Annotation of Cells ----
-new_cluster_ids <- c(
-  "Treg",         # 0
+cluster_ids_TNK <- c(
+  "Treg",       # 0
   "Tconv",      # 1
   "CD8_T",      # 2
   "CD8_T",      # 3
-  "Tconv",      # 4
+  "Tconv",      # 4- DotPlot: Could be CD8+ 
   "NK",         # 5
   "Tconv",      # 6
   "Tconv",      # 7
   "Tconv",      # 8
   "Tconv",      # 9
   "Tconv",      # 10
-  "CD8_T",      # 11
+  "Treg",       # 11- DotPlot: Also has strong CD8+ expression
   "Tconv"       # 12
 )
 
 # Apply the names
-names(new_cluster_ids) <- levels(NK_TCell)
-NK_TCell <- RenameIdents(NK_TCell, new_cluster_ids)
+names(cluster_ids_TNK) <- levels(NK_TCell)
+NK_TCell <- RenameIdents(NK_TCell, cluster_ids_TNK)
 # Save to metadata for future plotting
 NK_TCell$cell_type <- Idents(NK_TCell)
 
-# Merge NK_TCell with islet_graft_seurat for Final Annotation ----
+DimPlot(NK_TCell, reduction = "umap",label = T,label.size = 4,label.box = T,pt.size = 1)
 
+
+# Merge NK_TCell with islet_graft_seurat for Final Annotation ----
 # Create a copy of the original labels in the islet_graft_seurat object
 islet_graft_seurat$final_annotation <- as.character(Idents(islet_graft_seurat))
 
@@ -295,8 +314,8 @@ Idents(islet_graft_seurat) <- "final_annotation"
 table(Idents(islet_graft_seurat))
 
 # Plot the fully annotated global dataset
-DimPlot(islet_graft_seurat, reduction = "umap", label = TRUE, repel = TRUE) +
-  ggtitle("Fully Annotated Islet Graft Landscape")
+DimPlot(islet_graft_seurat, reduction = "umap",label = T,label.size = 4,label.box = T,pt.size = 1) +
+ggtitle("Annotated Single Cell Data")
 
-# Save your final version
+# Save final version
 saveRDS(islet_graft_seurat, "C:/Users/17343/Desktop/IsletTransplantRejection/IsletSingleCellData/ProcessedSingleCellObjects/islet_graft_seurat_FINAL.rds")
