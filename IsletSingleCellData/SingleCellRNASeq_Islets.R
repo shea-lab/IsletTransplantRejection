@@ -200,7 +200,7 @@ p1<-DimPlot(NK_TCell, reduction = "umap")
 p2<-DimPlot(NK_TCell, reduction = "umap",group.by ="condition" )
 p1+p2
 
-
+NK_TCell$cluster<-Idents(NK_TCell)
 
 DimPlot(NK_TCell, reduction = "umap",label = T,label.size = 4,label.box = T,pt.size = 1)
 
@@ -269,6 +269,27 @@ head(cluster9.markers, n = 5)
 # Lag3    1.286647e-69   2.560693 0.652 0.145  1.786124e-65
 # Cd200   1.312366e-68   3.019954 0.542 0.099  1.821827e-64
 
+p <- DotPlot(
+  NK_TCell,
+  features = c("Cd4", "Cd8a", "Cd8b"), # Adjust CD8 names if needed
+  idents = c("7", "8", "10")
+)
+
+# 2. Extract and print the exact data table
+# 'avg.exp' is the non-scaled average expression
+# 'pct.exp' is the percentage of cells expressing the gene
+print(p$data)
+
+test <- LoadSeuratRds(file = "C:/Users/17343/Desktop/IsletTransplantRejection/IsletSingleCellData/ProcessedSingleCellObjects/Archive/islet_graft_seurat_v1.rds")
+DotPlot(
+  test,
+  features = unique(unlist(marker_genes))
+) +
+  RotatedAxis() +
+  scale_color_gradient(low = "grey80", high = "red")
+DimPlot(test, reduction = "umap",label = T,label.size = 4,label.box = T,pt.size = 1)
+
+
 # Further Cluster Analysis for Annotation- end
 
 # Annotation of Cells ----
@@ -277,14 +298,14 @@ cluster_ids_TNK <- c(
   "Tconv",      # 1
   "CD8_T",      # 2
   "CD8_T",      # 3
-  "Tconv",      # 4- DotPlot: Could be CD8+ 
+  "CD8_T",      # 4
   "NK",         # 5
   "Tconv",      # 6
-  "Tconv",      # 7
+  "CD8_T",      # 7
   "Tconv",      # 8
-  "Tconv",      # 9
+  "CD8_T",      # 9
   "Tconv",      # 10
-  "Treg",       # 11- DotPlot: Also has strong CD8+ expression
+  "CD8_T",      # 11
   "Tconv"       # 12
 )
 
@@ -316,6 +337,7 @@ table(Idents(islet_graft_seurat))
 # Plot the fully annotated global dataset
 DimPlot(islet_graft_seurat, reduction = "umap",label = T,label.size = 4,label.box = T,pt.size = 1) +
 ggtitle("Annotated Single Cell Data")
-
+DimPlot(islet_graft_seurat, reduction = "umap",label = T,label.size = 6,label.box = T,pt.size = 1,repel =T) 
+  
 # Save final version
-saveRDS(islet_graft_seurat, "C:/Users/17343/Desktop/IsletTransplantRejection/IsletSingleCellData/ProcessedSingleCellObjects/islet_graft_seurat_FINAL.rds")
+saveRDS(islet_graft_seurat, "C:/Users/17343/Desktop/IsletTransplantRejection/IsletSingleCellData/ProcessedSingleCellObjects/islet_graft_seurat_v7.rds")
