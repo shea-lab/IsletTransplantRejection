@@ -12,41 +12,31 @@ pacman::p_load(tidyverse, plyr, magrittr, stats, dplyr, limma, RColorBrewer, gpl
                apeglm, boot, caret, ggvenn, grid, devtools, reshape2, gridExtra, 
                factoextra, edgeR, cowplot, pheatmap, coefplot, randomForest, ROCR, 
                genefilter, Hmisc, rdist, factoextra, ggforce, ggpubr, matrixStats, 
-               GSEAmining, ggrepel, progress, mnormt, psych, igraph, dnapath, 
+               GSEAmining, ggrepel, progress, mnormt, psych, igraph, 
                reactome.db, GSVA, msigdbr, gglasso, MatrixGenerics, VennDiagram, 
                mikropml, glmnet, scales, stats, caret, nnet, pROC)
 
+library(patchwork)
+library(tibble)
+library(Seurat)
+library(EnhancedVolcano)
+library(stringr)
+library(msigdbr)
 library(dplyr)
-# MSIGDBR Pathways ----
-# Needs msigdbr package: https://cran.r-project.org/web/packages/msigdbr/vignettes/msigdbr-intro.html
-msigdbr_collections() # Take a look at all the pathway groups in the msigdbr database
-sets_hallmark <- msigdbr(species="Mus musculus", category="H") # Large df w/ categories
-pwl_hallmark <- split(sets_hallmark$gene_symbol, # Genes to split into pathways, by ensembl
-                      sets_hallmark$gs_name) # Pathway names
-sets_reactome <- msigdbr(species="Mus musculus", subcategory="CP:REACTOME") # Large df w/ categories
-pwl_reactome <- split(sets_reactome$gene_symbol, # Genes to split into pathways, by ensembl
-                      sets_reactome$gs_name) # Pathway names
-kegg_gene_sets <- msigdbr(species="Mus musculus", subcategory="CP:KEGG_LEGACY") # Large df w/ categories
-pwl_kegg <- split(kegg_gene_sets$gene_symbol, # Genes to split into pathways, by ensembl
-                  kegg_gene_sets$gs_name) # Pathway names
-biocarta_gene_sets <- msigdbr(species="Mus musculus", subcategory="CP:BIOCARTA") # Large df w/ categories
-pwl_biocarta <- split(biocarta_gene_sets$gene_symbol, # Genes to split into pathways, by ensembl
-                      biocarta_gene_sets$gs_name) # Pathway names
-pwl_msigdbr <- c(pwl_hallmark, pwl_reactome, pwl_kegg, pwl_biocarta) # Compile them all
-length(pwl_msigdbr)
+library(clusterProfiler)
 
 
 
 # 1. Load the Data ----
 # Organize Data
-setwd("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/")
+setwd("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/")
 getwd()
 
-#Metadata Importing
-meta_batch1 <- read.table("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Batch1/Metadata_Batch1.csv", sep=",", header=T) # Metadata file
-meta_batch2 <- read.table("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Batch2/Metadata_Batch2.csv", sep=",", header=T) # Metadata file
-meta_batch3 <- read.table("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Batch3/Metadata_Batch3.csv", sep=",", header=T) # Metadata file
-meta_batch4 <- read.table("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Batch4/Metadata_Batch4.csv", sep=",", header=T) # Metadata file
+# Allo Transplant Metadata Importing
+meta_batch1 <- read.table("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Batch1/Metadata_Batch1.csv", sep=",", header=T) # Metadata file
+meta_batch2 <- read.table("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Batch2/Metadata_Batch2.csv", sep=",", header=T) # Metadata file
+meta_batch3 <- read.table("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Batch3/Metadata_Batch3.csv", sep=",", header=T) # Metadata file
+meta_batch4 <- read.table("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Batch4/Metadata_Batch4.csv", sep=",", header=T) # Metadata file
 
 meta_batch1 <- as.data.frame(meta_batch1)
 meta_batch2 <- as.data.frame(meta_batch2)
@@ -59,17 +49,17 @@ meta_combined <- rbind(meta_batch1, meta_batch2,meta_batch3,meta_batch4)
 head(meta_combined)
 unique(meta_combined$Group)
 
-#Counts Data Importing
-counts_batch1 <- as.data.frame(read.table("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Batch1/IsTx_gene_expected_count_annot_batch1.csv", sep=",", header=T,check.names = FALSE)) # Raw counts file
+#All Transplant Counts Data Importing
+counts_batch1 <- as.data.frame(read.table("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Batch1/IsTx_gene_expected_count_annot_batch1.csv", sep=",", header=T,check.names = FALSE)) # Raw counts file
 counts_batch1 <- na.omit(counts_batch1)
 
-counts_batch2 <- as.data.frame(read.table("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Batch2/IsTx_gene_expected_count_annot_batch2.csv", sep=",", header=T,check.names = FALSE)) # Raw counts file
+counts_batch2 <- as.data.frame(read.table("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Batch2/IsTx_gene_expected_count_annot_batch2.csv", sep=",", header=T,check.names = FALSE)) # Raw counts file
 counts_batch2 <- na.omit(counts_batch2)
 
-counts_batch3 <- as.data.frame(read.table("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Batch3/IsTx_gene_expected_count_annot_batch3.csv", sep=",", header=T,check.names = FALSE)) # Raw counts file
+counts_batch3 <- as.data.frame(read.table("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Batch3/IsTx_gene_expected_count_annot_batch3.csv", sep=",", header=T,check.names = FALSE)) # Raw counts file
 counts_batch3 <- na.omit(counts_batch3)
 
-counts_batch4 <- as.data.frame(read.table("/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Batch4/IsTx_gene_expected_count_annot_batch4.csv", sep=",", header=T,check.names = FALSE)) # Raw counts file
+counts_batch4 <- as.data.frame(read.table("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Batch4/IsTx_gene_expected_count_annot_batch4.csv", sep=",", header=T,check.names = FALSE)) # Raw counts file
 counts_batch4 <- na.omit(counts_batch4)
 
 
@@ -94,7 +84,7 @@ genes <- counts_batch4[, 1]
 rownames(counts_batch4) <- genes
 counts_batch4 <- counts_batch4[, -1]
 
-#Combine data
+#Combine counts data
 # First merge counts_batch1 and counts_batch2
 combined_counts <- merge(counts_batch1, counts_batch2, by = "row.names", all = TRUE)
 # Rename the Row.names column back
@@ -123,28 +113,44 @@ combined_counts <- combined_counts[, colnames(combined_counts) %in% samples_to_k
 
 # Preview the combined dataset
 head(combined_counts)
-# Create new column with high-level analysis groups
-meta_combined$Outcomes <- meta_combined$Group
-# Change Late Rejection to Tolerance for Initial Analysis 
-meta_combined$Group[meta_combined$Group == "Late Rejection"] <- "Tolerance"
+
 
 # 2.Preprocessing and Cleaning ----
 
-# Select columns in combined_counts that match the remaining sample names in meta_combined
+# Remove zero and low expressed genes
 combined_counts <- combined_counts[, meta_combined$Samples]  # Ensure Sample_IDs match column names in combined_counts
 
 IsletTransplantCounts <- flexiDEG.function1(combined_counts, meta_combined, # Run Function 1
                                             convert_genes = F, exclude_riken = T, exclude_pseudo = F,
                                             batches = F, quality = T, variance = F,use_pseudobulk = F) # Select filters: 0, 0, 0
-rows_to_remove <- grep("^Gm[0-9]", rownames(IsletTransplantCounts))
-# Remove those rows from case1_f1
+#Remove undefined and pseudogenes
+remove_pattern <- "^Gm[0-9]|^AC[0-9]|^AL[0-9]|^AI[0-9]|^AW[0-9]|^AF[0-9]|^BB[0-9]|^BC[0-9]|^CT[0-9]|^CAAA|^BX[0-9]|^CN[0-9]|^CR[0-9]|^C[0-9]{4,}|^Olfr"
+rows_to_remove <- grep(remove_pattern, rownames(IsletTransplantCounts)) #Remove Gm genes
 IsletTransplantCounts <- IsletTransplantCounts[-rows_to_remove, ]
+# connect to Ensembl mouse database
+mart <- useEnsembl(
+  biomart = "genes",
+  dataset = "mmusculus_gene_ensembl",
+  mirror = "useast"
+)
+# get gene biotypes
+gene_info <- getBM(
+  attributes = c("mgi_symbol", "gene_biotype"),
+  filters = "mgi_symbol",
+  values = rownames(IsletTransplantCounts),
+  mart = mart
+)
+#setdiff(rownames(IsletTransplantCounts), gene_info$mgi_symbol)
+pseudo_genes <- gene_info$mgi_symbol[grep("pseudogene", gene_info$gene_biotype)]
+# remove them
+IsletTransplantCounts <- IsletTransplantCounts[
+  !(rownames(IsletTransplantCounts) %in% pseudo_genes), ]
 
-# Saving case1_f1 dataframe as a CSV file
-write.csv(IsletTransplantCounts, file = "/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Combined/Combined_Raw_Counts_ITx_Filtered.csv", row.names = TRUE)
+
+write.csv(IsletTransplantCounts, file = "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Combined/Combined_Raw_Counts_ITx_Filtered.csv", row.names = TRUE)
 
 # Saving meta_combined dataframe as a CSV file
-write.csv(meta_combined, file = "/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Combined/Combined_Metadata_ITx.csv", row.names = FALSE)
+write.csv(meta_combined, file = "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Combined/Combined_Metadata_ITx.csv", row.names = FALSE)
 
 # Color palettes
 coul <- colorRampPalette(brewer.pal(11, "RdBu"))(100) # Palette for gene heatmaps
@@ -159,86 +165,102 @@ storage.mode(IsletTransplantCounts) <- "integer"
 
 dds_IsletTransplant <- DESeqDataSetFromMatrix(IsletTransplantCounts, meta_combined,
                                               design = ~ 1)   # dummy design for now
+colData(dds_IsletTransplant)$logIEQ <- log(colData(dds_IsletTransplant)$IEQ)
 
-saveRDS(dds_IsletTransplant, file = "/Users/jyotirmoyroy/Desktop/Current Projects/Transplant Rejection Sensor Paper/Data/Robjects/dds_IsletTransplant_master.rds")
+saveRDS(dds_IsletTransplant, file = "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Robjects/dds_IsletTransplant_master_v2.rds")
+unique(colData(dds_IsletTransplant)$Group)
+
+# Check IEQ Distribution----
+
+meta_df <- meta_combined %>%
+  as.data.frame() %>%
+  as_tibble()
+
+meta_mouse <- meta_df %>%
+  mutate(
+    MouseID = paste0(as.character(Animal), "_", as.character(Cohort))
+  ) %>%
+  distinct(MouseID, .keep_all = TRUE)
+
+ggplot(meta_mouse, aes(x = Group, y = IEQ, fill = Group)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.15, size = 2) +
+  theme_minimal(base_size = 16) +
+  labs(y = "IEQ")
+
+
 
 # 4. Allogeneic Vs Syngeneic Signature----
-# subset samples
-sel <- colData(dds_IsletTransplant)$Group %in% c("Control Rejected","Control Accepted") & colData(dds_IsletTransplant)$Day %in% c(7,14)
+dds_IsletTransplant<-readRDS("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Robjects/dds_IsletTransplant_master_v2.rds")
+# subset samples of Allo and Syn (without treatment) from Day 7 and Day 14
+sel <- colData(dds_IsletTransplant)$Group %in% c("Control Allogeneic","Control Syngeneic") & colData(dds_IsletTransplant)$Day %in% c(7,14)
 dds_IsletTransplant_AlloVsSyn <- dds_IsletTransplant[, sel]
 
 dds_IsletTransplant_AlloVsSyn$Batch       <- factor(dds_IsletTransplant_AlloVsSyn$Batch)
 dds_IsletTransplant_AlloVsSyn$LibraryPrep <- factor(dds_IsletTransplant_AlloVsSyn$LibraryPrep)
 dds_IsletTransplant_AlloVsSyn$Group <- factor(
   dds_IsletTransplant_AlloVsSyn$Group,
-  levels = c("Control Accepted", "Control Rejected")  # order sets baseline
+  levels = c("Control Syngeneic", "Control Allogeneic")  # order sets baseline
 )
-levels(dds_IsletTransplant_AlloVsSyn$Group)
 
 dds_IsletTransplant_AlloVsSyn$Day <- factor(dds_IsletTransplant_AlloVsSyn$Day,
                                             levels = c(7, 14))  # baseline = 7
-levels(dds_IsletTransplant_AlloVsSyn$Day)
+
 
 # Check for Collinearuty
 cd <- as.data.frame(colData(dds_IsletTransplant_AlloVsSyn))
-# Basic sanity
-lapply(cd[, c("Batch","LibraryPrep","Day","Group")], function(x) table(x, useNA="ifany"))
-# Check for NAs
-sapply(cd[, c("Batch","LibraryPrep","Day","Group")], function(x) any(is.na(x)))
+# Check sample distribution
+lapply(cd[, c("Batch","LibraryPrep","logIEQ","Day","Group")], function(x) table(x, useNA="ifany"))
 # Model matrix rank
-mm <- model.matrix(~ Batch + LibraryPrep + Day + Group, data = cd)
-qr(mm)$rank; ncol(mm)             # if rank < ncol(mm), not full rank
+mm <- model.matrix(~ Batch + LibraryPrep + logIEQ+ Day + Group, data = cd)
+qr(mm)$rank; ncol(mm)             # if rank < ncol(mm), not full rank and there are collinear columns
+#Here bacth and LibraryPrep are collinear
+
+#Check if logIEQ varies systemically with Group or Day
+boxplot(logIEQ ~ Group, data = colData(dds_IsletTransplant_AlloVsSyn)) #Signficantly different between groups
 
 
 #Design Formula
-design(dds_IsletTransplant_AlloVsSyn) <- ~ Batch + Day + Group + Day:Group
+design(dds_IsletTransplant_AlloVsSyn) <- ~ Batch +  Day + Group + Day:Group #IEQ not included since it is higher in allo vs syn group and a function of group
+table(cd$Group,cd$Day)# Check the minimum number of samples in a group
+keep <- rowSums(counts(dds_IsletTransplant_AlloVsSyn) >= 10) >= 4  # Smallest number of samples in a group
+dds_IsletTransplant_AlloVsSyn <- dds_IsletTransplant_AlloVsSyn[keep, ]
 dds_IsletTransplant_AlloVsSyn <- DESeq(dds_IsletTransplant_AlloVsSyn)
-design(dds_IsletTransplant_AlloVsSyn)
 resultsNames(dds_IsletTransplant_AlloVsSyn)
 
 # Day 7
 res_ALLOvSYN_D7 <- results(dds_IsletTransplant_AlloVsSyn,
-                           name = "Group_Control.Rejected_vs_Control.Accepted")
+                           name = "Group_Control.Allogeneic_vs_Control.Syngeneic")
 
 # Day 14
-res_ALLOvSYN_D14 <- results(dds_IsletTransplant_AlloVsSyn,
-                            list(c("Group_Control.Rejected_vs_Control.Accepted",
-                                   "Day14.GroupControl.Rejected")))
+res_ALLOvSYN_D14 <- results(dds_IsletTransplant_AlloVsSyn, 
+                            list(c("Group_Control.Allogeneic_vs_Control.Syngeneic", "Day14.GroupControl.Allogeneic")))
 
-# Interactions
-res_interaction <- results(dds_IsletTransplant_AlloVsSyn,
-                           name = "Day14.GroupControl.Rejected")
-res_interaction_df <- as.data.frame(res_interaction)
-res_interaction_df$gene <- rownames(res_interaction_df)
 
 summary(res_ALLOvSYN_D7)
 summary(res_ALLOvSYN_D14)
 
-library(EnhancedVolcano)
 
 # Thresholds
 q_cut  <- 0.10
 fc_cut <- 1
 
-library(EnhancedVolcano)
 
-## 0) Prep results as data.frames with a 'gene' column
-d7  <- as.data.frame(res_ALLOvSYN_D7);  d7$gene  <- rownames(res_ALLOvSYN_D7)
-d14 <- as.data.frame(res_ALLOvSYN_D14); d14$gene <- rownames(res_ALLOvSYN_D14)
+## Prep results as data.frames with a 'gene' column
+d7_ALLOvSYN  <- as.data.frame(res_ALLOvSYN_D7);  d7_ALLOvSYN$gene  <- rownames(res_ALLOvSYN_D7)
+d14_ALLOvSYN <- as.data.frame(res_ALLOvSYN_D14); d14_ALLOvSYN$gene <- rownames(res_ALLOvSYN_D14)
 
-write.csv(d7, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/DESEQResults_Day7_Allo_vs_Syn.csv", row.names = TRUE)
-write.csv(d14, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/DESEQResults_Day14_Allo_vs_Syn.csv", row.names = TRUE)
-write.csv(res_interaction_df, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/DESEQResults_InteractionTimeGroup_Allo_vs_Syn.csv", row.names = TRUE)
+
+write.csv(d7_ALLOvSYN, "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Allogeneic_Vs_Syngeneic/DESEQResults_Day7_Allo_vs_Syn.csv", row.names = TRUE)
+write.csv(d14_ALLOvSYN, "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Allogeneic_Vs_Syngeneic/DESEQResults_Day14_Allo_vs_Syn.csv", row.names = TRUE)
 
 # Function to create color mapping
-make_keyvals_fdr_fc_AllovsSyn <- function(df, q = 0.10, fc = 1,
+make_keyvals_fdr_fc <- function(df, q = 0.10, fc = 1,
                                           col_up = "#D62728", col_down = "#1F77B4", col_ns = "gray70") {
   # valid stats (for coloring); everything else becomes NS
   ok   <- !is.na(df$padj) & !is.na(df$log2FoldChange)
-  
   up   <- ok & df$padj < q & df$log2FoldChange >=  fc
   down <- ok & df$padj < q & df$log2FoldChange <= -fc
-  
   # default color + label
   key   <- rep(col_ns, nrow(df))
   label <- rep("Not significant", nrow(df))
@@ -253,10 +275,11 @@ make_keyvals_fdr_fc_AllovsSyn <- function(df, q = 0.10, fc = 1,
   names(key) <- label        # <- legend labels; no NAs
   key
 }
-keyvals_d7  <- make_keyvals_fdr_fc_AllovsSyn(d7)
-keyvals_d14 <- make_keyvals_fdr_fc_AllovsSyn(d14)
 
-library(dplyr)
+keyvals_d7_ALLOvSYN  <- make_keyvals_fdr_fc(d7_ALLOvSYN,fc=fc_cut)
+keyvals_d14_ALLOvSYN <- make_keyvals_fdr_fc(d14_ALLOvSYN,fc=fc_cut)
+
+# Select top 30 genes to plot
 pick_labels <- function(df, q = 0.10, fc = 1, topN = 30) {
   idx <- which(!is.na(df$padj) & !is.na(df$log2FoldChange) &
                  df$padj < q & abs(df$log2FoldChange) >= fc)
@@ -267,18 +290,18 @@ pick_labels <- function(df, q = 0.10, fc = 1, topN = 30) {
   labs[seq_len(min(topN, length(labs)))]
 }
 
-selLab_d7  <- pick_labels(d7,  q_cut, fc_cut, 30)
-selLab_d14 <- pick_labels(d14, q_cut, fc_cut, 30)
+selLab_d7_ALLOvSYN  <- pick_labels(d7_ALLOvSYN,  q_cut, fc_cut, 30)
+selLab_d14_ALLOvSYN <- pick_labels(d14_ALLOvSYN, q_cut, fc_cut, 30)
 
+##  Axis limits
+xmax_d7_ALLOvSYN  <- max(2, ceiling(max(abs(d7_ALLOvSYN$log2FoldChange),  na.rm=TRUE)))
+xmax_d14_ALLOvSYN <- max(2, ceiling(max(abs(d14_ALLOvSYN$log2FoldChange), na.rm=TRUE)))
 
-## 3) Axis limits
-xmax_d7  <- max(2, ceiling(max(abs(d7$log2FoldChange),  na.rm=TRUE)))
-xmax_d14 <- max(2, ceiling(max(abs(d14$log2FoldChange), na.rm=TRUE)))
-
-## Volcano: Day 7----
+## Volcano Plots----
+#Day 7
 EnhancedVolcano(
-  d7,
-  lab           = d7$gene,
+  d7_ALLOvSYN,
+  lab           = d7_ALLOvSYN$gene,
   x             = "log2FoldChange",
   y             = "padj",
   pCutoff       = 0.10,          # FDR threshold
@@ -286,24 +309,24 @@ EnhancedVolcano(
   xlab          = expression("log"[2]*"(Fold Change)"),
   ylab          = expression("-log"[10]*"(FDR)"),
   title         = "Allogeneic vs Syngeneic — Day 7",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(d7$padj<0.10 & abs(d7$log2FoldChange)>=1, na.rm=TRUE), ")"),
-  xlim          = c(-xmax_d7, xmax_d7),
-  ylim = c(0,5),
+  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(d7_ALLOvSYN$padj<0.10 & abs(d7_ALLOvSYN$log2FoldChange)>=1, na.rm=TRUE), ")"),
+  xlim          = c(-5, 5),
+  ylim = c(0,4),
   boxedLabels   = TRUE,
   pointSize     = 3,
   labSize       = 6,
   colAlpha      = 0.8,
   drawConnectors= TRUE,
   max.overlaps = 15,
-  colCustom     = keyvals_d7,
+  colCustom     = keyvals_d7_ALLOvSYN,
   legendPosition= "right",
-  selectLab     = selLab_d7
+  selectLab     = selLab_d7_ALLOvSYN
 )
 
-## Volcano: Day 14----
+## Day 14
 EnhancedVolcano(
-  d14,
-  lab           = d14$gene,
+  d14_ALLOvSYN,
+  lab           = d14_ALLOvSYN$gene,
   x             = "log2FoldChange",
   y             = "padj",
   pCutoff       = 0.10,
@@ -311,8 +334,8 @@ EnhancedVolcano(
   xlab          = expression("log"[2]*"(Fold Change)"),
   ylab          = expression("-log"[10]*"(FDR)"),
   title         = "Allogeneic vs Syngeneic — Day 14",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(d14$padj<0.10 & abs(d14$log2FoldChange)>=1, na.rm=TRUE), ")"),
-  xlim          = c(-xmax_d14, xmax_d14),
+  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(d14_ALLOvSYN$padj<0.10 & abs(d14_ALLOvSYN$log2FoldChange)>=1, na.rm=TRUE), ")"),
+  xlim          = c(-xmax_d14_ALLOvSYN, xmax_d14_ALLOvSYN),
   ylim = c(0,10),
   boxedLabels   = TRUE,
   pointSize     =3,
@@ -320,267 +343,323 @@ EnhancedVolcano(
   colAlpha      = 0.8,
   max.overlaps = 15,
   drawConnectors= TRUE,
-  colCustom     = keyvals_d14,
+  colCustom     = keyvals_d14_ALLOvSYN,
   legendPosition= "right",
-  selectLab     = selLab_d14
+  selectLab     = selLab_d14_ALLOvSYN
 )
 
-## Interactions- Day x Group----
-EnhancedVolcano(res_interaction_df,
-                lab = rownames(res_interaction_df),
-                pCutoff       = 0.10,
-                FCcutoff      = 1,
-                ylim = c(0,8),
-                boxedLabels   = TRUE,
-                pointSize     =3,
-                labSize       = 6,
-                colAlpha      = 0.8,
-                max.overlaps = 15,
-                drawConnectors= TRUE,
-                legendPosition= "right",
-                x = "log2FoldChange",
-                y = "padj",
-                xlab          = expression("log"[2]*"(Fold Change)"),
-                ylab          = expression("-log"[10]*"(FDR)"),
-                title = "Interaction: (Day 14 vs 7) × (Allo vs Syn)")
+## Heatmap-----
+library(pheatmap)
+# significant genes for each day
+sig_d7_genes <- d7_ALLOvSYN$gene[
+  !is.na(d7_ALLOvSYN$padj) &
+    d7_ALLOvSYN$padj <= q_cut &
+    abs(d7_ALLOvSYN$log2FoldChange) >= fc_cut
+]
 
+sig_d14_genes <- d14_ALLOvSYN$gene[
+  !is.na(d14_ALLOvSYN$padj) &
+    d14_ALLOvSYN$padj <= q_cut &
+    abs(d14_ALLOvSYN$log2FoldChange) >= fc_cut
+]
 
+length(sig_d7_genes)
+length(sig_d14_genes)
 
-
-
-
-## PLSDA Analysis ----
-
-library(DESeq2)
-library(limma)
-library(mixOmics)
-library(ggplot2)
-library(ComplexHeatmap)
-library(circlize)
-
-# --- Build the 4-group label from your fitted object ---
-CountsAlloVsSyn <- as.data.frame(colData(dds_IsletTransplant_AlloVsSyn))
-
-# Short group names
-shortGroup <- ifelse(CountsAlloVsSyn$Group == "Control Rejected", "Allogeneic", "Syngeneic")
-CountsAlloVsSyn$GD4 <- factor(paste0(shortGroup, "_", CountsAlloVsSyn$Day),
-                 levels = c("Allogeneic_7","Allogeneic_14","Syngeneic_7","Syngeneic_14"))
-# --- Variance-stabilized expression ---
 vsd <- vst(dds_IsletTransplant_AlloVsSyn, blind = FALSE)
-mat <- assay(vsd)  # genes x samples
-# --- Remove batch (for visualization only) ---
-mat_corr <- removeBatchEffect(mat, batch = colData(vsd)$Batch)
-
-# --- PLS-DA input: samples x genes ---
-X <- t(mat_corr)   # samples in rows
-Y <- CountsAlloVsSyn$GD4        # factor with 4 levels
-
-set.seed(123)
-plsda_model <- mixOmics::plsda(X, Y, ncomp = 2)
-
-# Scores for LV1 & LV2
-scores <- plsda_model$variates$X
-plot_df <- data.frame(
-  LV1   = scores[, 1],
-  LV2   = scores[, 2],
-  Group = Y
+mat <- assay(vsd)
+cd <- as.data.frame(colData(dds_IsletTransplant_AlloVsSyn))
+design_heatmap <- model.matrix(~ Day + Group + Day:Group, data = cd)
+mat_bc <- limma::removeBatchEffect(
+  mat,
+  batch = vsd$Batch,
+  design = design_heatmap
 )
 
-
-group_colors <- c(
-  "Allogeneic_14" = "#8B1A1A",  # darker shade of red (deep crimson)
-  "Allogeneic_7"  = "#D62728",  # base red
-  "Syngeneic_14"  = "#08306B",  # darker shade of blue (navy/steel blue)
-  "Syngeneic_7"   = "#1F77B4"   # base blue
+anno_col <- as.data.frame(
+  colData(dds_IsletTransplant_AlloVsSyn)[, "Group", drop = FALSE]
 )
-group_shapes <- c(
-  "Allogeneic_7"  = 16,
-  "Allogeneic_14" = 17,
-  "Syngeneic_7"   = 15,
-  "Syngeneic_14"  = 18
-)
-
-
-expl_var <- round(plsda_model$prop_expl_var$X * 100, 1)  # % explained variance for X
-xlab <- paste0("PLS Component 1 (", expl_var[1], "%)")
-ylab <- paste0("PLS Component 2 (", expl_var[2], "%)")
-
-# 2D PLS-DA plot (LV1 vs LV2) with filled ellipses
-ggplot(plot_df, aes(x = LV1, y = LV2, color = Group, shape = Group)) +
-  # points
-  geom_point(size = 5, alpha = 0.9) +
-  # filled confidence ellipses (70% or 68% CI both common)
-  stat_ellipse(
-    geom  = "polygon", 
-    aes(fill = Group), 
-    level = 0.70, 
-    alpha = 0.3, 
-    show.legend = FALSE
-  ) +
-  # custom colors, shapes
-  scale_color_manual(values = group_colors) +
-  scale_fill_manual(values  = group_colors) +
-  scale_shape_manual(values = group_shapes) +
-  # labels
-  labs(
-    title = "PLS-DA: Allogeneic vs Syngeneic Across Days",
-    x = xlab,
-    y = ylab
-  ) +
-  # minimal but with axis lines
-  theme_minimal(base_size = 18) +
-  theme(
-    legend.position   = "top",
-    legend.title      = element_blank(),
-    axis.title        = element_text(size = 20, face = "bold"),
-    axis.text         = element_text(size = 16, color = "black"),
-    axis.line         = element_line(color = "black", linewidth = 0.8),
-    axis.ticks        = element_line(color = "black"),
-    panel.grid        = element_blank(),
-    plot.title        = element_text(size = 20, face = "bold", hjust = 0.5),
-    plot.margin       = unit(c(10, 40, 10, 10), "pt")  # top, right, bottom, left
+annotation_colors <- list(
+  Group = c(
+    "Control Allogeneic" = "#FF2400",   # Scarlet
+    "Control Syngeneic" = "#2E6F40"     # Moss green
   )
-
-# Get VIP scores
-vip_scores <- vip(plsda_model)
-# Extract only Component 1
-vip_axis1 <- vip_scores[, 1]
-vip_df_axis1 <- data.frame(
-  Gene = rownames(vip_scores),
-  VIP_Axis1 = vip_axis1
 )
-#Sort by descending VIP
-vip_df_axis1 <- vip_df_axis1[order(-vip_df_axis1$VIP_Axis1), ]
-#Save to CSV
-write.csv(vip_df_axis1, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/VIP_scores_AlloVsSyn_PLS1.csv", row.names = FALSE)
-# Rank genes by VIP (descending)
-top100_genes <- names(sort(vip_scores[, 1], decreasing = TRUE))[1:100]
-mat_top100 <- mat_corr[top100_genes, ]
-anno <- data.frame(
-  Group = Y,        # group labels (factor)
-  row.names = colnames(mat_top100)
-)
+# Day 7 samples
+samples_d7 <- rownames(colData(dds_IsletTransplant_AlloVsSyn))[colData(dds_IsletTransplant_AlloVsSyn)$Day == 7]
+# matrix for Day 7
+mat_d7 <- mat_bc[sig_d7_genes, samples_d7, drop = FALSE]
+# row-scale genes
+mat_d7_scaled <- t(scale(t(mat_d7)))
+# remove genes with zero variance if any
+mat_d7_scaled <- mat_d7_scaled[complete.cases(mat_d7_scaled), , drop = FALSE]
+# annotation
+anno_col_d7 <- anno_col[samples_d7, , drop = FALSE]
 
-anno_colors <- list(
-  Group = group_colors   # same color scheme you used before
-)
-
-Y <- factor(Y, levels = c("Allogeneic_7","Syngeneic_7", "Allogeneic_14", "Syngeneic_14"))
-
-# Reorder the columns of the matrix based on group
-sample_order <- order(Y)
-mat_top100_ordered <- mat_top100[, sample_order]
-anno_ordered <- anno[sample_order, , drop = FALSE]
 pheatmap(
-  mat_top100_ordered,
-  scale = "row",                  # row-wise z-score
-  annotation_col = anno_ordered,          # add group annotation
-  annotation_colors = anno_colors,
+  mat_d7_scaled,
+  annotation_col = anno_col_d7,
+  annotation_colors = annotation_colors,
   cluster_rows = TRUE,
-  cluster_cols = FALSE,
+  cluster_cols = TRUE,
   show_rownames = TRUE,
-  show_colnames = FALSE,
+  show_colnames = TRUE,
   fontsize_row = 8,
   fontsize_col = 10,
-  color = colorRampPalette(c("navy", "white", "firebrick3"))(50) # publication-style
+  main = paste0("Day 7 DE genes: Allogeneic vs Syngeneic (n = ", nrow(mat_d7_scaled), ")"),
+  scale = "none",
+  color = colorRampPalette(c("navy", "white", "firebrick3"))(100)
 )
 
-## Immune Markers ----
+# Day 14 samples
+samples_d14 <- rownames(colData(dds_IsletTransplant_AlloVsSyn))[colData(dds_IsletTransplant_AlloVsSyn)$Day == 14]
+# matrix for Day 7
+mat_d14 <- mat_bc[sig_d14_genes, samples_d14, drop = FALSE]
+# row-scale genes
+mat_d14_scaled <- t(scale(t(mat_d14)))
+# remove genes with zero variance if any
+mat_d14_scaled <- mat_d14_scaled[complete.cases(mat_d14_scaled), , drop = FALSE]
+# annotation
+anno_col_d14 <- anno_col[samples_d14, , drop = FALSE]
 
-library(DESeq2)
-library(pheatmap)
-library(limma)
+pheatmap(
+  mat_d14_scaled,
+  annotation_col = anno_col_d14,
+  annotation_colors = annotation_colors,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  show_rownames = TRUE,
+  show_colnames = TRUE,
+  fontsize_row = 8,
+  fontsize_col = 10,
+  main = paste0("Day 14 DE genes: Allogeneic vs Syngeneic (n = ", nrow(mat_d14_scaled), ")"),
+  scale = "none",
+  color = colorRampPalette(c("navy", "white", "firebrick3"))(100)
+)
 
 
-# Define immune gene list (same as before)
-immune_genes <- c("Cd3d","Cd3e","Cd3g","Cd247","Trac","Trbc1","Trbc2","Cd4","Cd8a","Cd8b1",
-                  "Cd28","Ctla4","Icos","Pdcd1","Lag3","Havcr2","Tnfrsf9","Tnfrsf18","Tnfrsf4","Cd40lg",
-                  "Gzma","Gzmb","Gzmk","Prf1","Ifng","Tnf","Il2",
-                  "Foxp3","Il2ra","Ikzf2","Tnfrsf18","Ly6G",
-                  "Tbx21","Stat4","Ifng","Gata3","Il4","Il5","Il13","Rorc","Il17a","Il17f","Il21","Il22","Bcl6","Cxcr5","Tox",
-                  "Itgax","Zbtb46","Cd80","Cd86","Cd40","H2-Ab1","H2-Aa","H2-Eb1",
-                  "Adgre1","Cd68","Cd14","Itgam","Csf1r","Mrc1","Nos2","Arg1",
-                  "Cd19","Cd79a","Cd79b","Ms4a1","Cd22",
-                  "Ccl2","Ccl5","Cxcl9","Cxcl10","Cxcl11","Cxcr3","Ccr7","Spn")
+## Elastic Net Feature Selection----
 
-# immune_genes <- c(
-#   "Cd163","Csf2","C4b","C8a","Cfi",
-#   "Ifi202b","Il24","Ly6c1","Masp2","Mcpt4",
-#   "Plch2","S1pr5","Tac1","Zbtb16"
-# )
+# DO analysis for timepoint combined
+design(dds_IsletTransplant_AlloVsSyn) <- ~ Batch +  Day + Group  #IEQ not included since it is higher in allo vs syn group and a function of group
+keep <- rowSums(counts(dds_IsletTransplant_AlloVsSyn) >= 10) >= 4  # Smallest number of samples in a group
+dds_IsletTransplant_AlloVsSyn <- dds_IsletTransplant_AlloVsSyn[keep, ]
+dds_IsletTransplant_AlloVsSyn <- DESeq(dds_IsletTransplant_AlloVsSyn)
+resultsNames(dds_IsletTransplant_AlloVsSyn)
+
+# All Days combined
+res_ALLOvSYN <- results(dds_IsletTransplant_AlloVsSyn,
+                        name = "Group_Control.Allogeneic_vs_Control.Syngeneic")
+
+genes_ALLOvSYN  <- as.data.frame(res_ALLOvSYN);  genes_ALLOvSYN$gene  <- rownames(res_ALLOvSYN)
+
+write.csv(genes_ALLOvSYN, "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Allogeneic_Vs_Syngeneic/DESEQResults_DayCombined_Allo_vs_Syn.csv", row.names = TRUE)
+
+sig_genes_ALLOvSYN <- genes_ALLOvSYN$gene[
+  !is.na(genes_ALLOvSYN$pvalue) &
+    genes_ALLOvSYN$pvalue <= 0.05 &
+    abs(genes_ALLOvSYN$log2FoldChange) >= 0.5
+]
+
+length(sig_genes_ALLOvSYN)
+
 vsd <- vst(dds_IsletTransplant_AlloVsSyn, blind = FALSE)
-mat  <- assay(vsd)
-matc <- removeBatchEffect(mat, batch = colData(vsd)$Batch)
-
-# keep only immune genes from earlier step
-mat_filt   <- matc[rownames(matc) %in% immune_genes, ]
-mat_scaled <- t(scale(t(mat_filt)))
-
-heat_colors <- colorRampPalette(c("navy","white","firebrick3"))(100)
-
-day_vec <- as.character(colData(vsd)$Day)
-group_vec <- as.character(colData(vsd)$Group)
-
-ann_colors <- list(
-  Group = c("Control Rejected" = "#D62728", "Control Accepted" = "#1F77B4"),
-  Day   = c("7" = "gray40", "14" = "gray70")
+mat <- assay(vsd)
+cd <- as.data.frame(colData(dds_IsletTransplant_AlloVsSyn))
+design_enet <- model.matrix(~ Group, data = cd)
+mat_enet <- limma::removeBatchEffect(
+  mat,
+  batch = vsd$Batch,
+  covariates = model.matrix(~ Day, data = cd)[, -1, drop = FALSE],
+  design = design_enet
 )
 
-for (day_sel in c("7","14")) {
-  cols_idx <- which(day_vec == day_sel)
-  
-  # reorder columns: first Control Accepted, then Control Rejected
-  order_idx <- cols_idx[order(group_vec[cols_idx])]
-  mat_day   <- mat_scaled[, order_idx, drop = FALSE]
-  
-  annotation_col <- data.frame(
-    Group = group_vec[order_idx],
-    Day   = day_vec[order_idx]
+
+# expression matrix for glmnet: samples x genes
+x_AlloVsSyn <- t(mat_enet[sig_genes_ALLOvSYN, , drop = FALSE])
+
+# binary outcome
+y_AlloVsSyn <- ifelse(cd$Group == "Control Allogeneic", 1, 0)
+
+# Find best alpha with LOOCV
+set.seed(123)
+alpha_grid <- seq(0, 1, by = 0.1)
+cv_summary <- data.frame()
+
+for (a in alpha_grid) {
+  cvfit <- cv.glmnet(
+    x = x_AlloVsSyn,
+    y = y_AlloVsSyn,
+    family = "binomial",
+    alpha = a,
+    foldid = 1:length(y_AlloVsSyn),   # LOOCV
+    type.measure = "deviance",
+    standardize = TRUE
   )
-  rownames(annotation_col) <- colnames(mat_day)
   
-  print(
-    pheatmap(mat_day,
-             color = heat_colors,
-             annotation_col = annotation_col,
-             annotation_colors = ann_colors,
-             cluster_rows = TRUE,
-             cluster_cols = FALSE,   # no column clustering
-             show_rownames = TRUE,
-             show_colnames = TRUE,
-             fontsize_row = 8,
-             main = paste("Immune Gene Expression (Day", day_sel, ")"))
+  cv_summary <- rbind(
+    cv_summary,
+    data.frame(
+      alpha = a,
+      cv_error = min(cvfit$cvm),
+      lambda_min = cvfit$lambda.min,
+      lambda_1se = cvfit$lambda.1se
+    )
   )
 }
+
+cv_summary[order(cv_summary$cv_error), ]
+cv_summary
+
+best_alpha <- cv_summary$alpha[which.min(cv_summary$cv_error)]
+best_alpha
+
+# Stability selection
+set.seed(123)
+n_iter <- 1000
+n_samples <- nrow(x_AlloVsSyn)
+
+selected_list <- vector("list", n_iter)
+
+for (i in 1:n_iter) {
+  
+  # Subsample ~80% of samples each time
+  idx <- sample(1:n_samples, size = round(0.8 * n_samples))
+  
+  x_sub <- x_AlloVsSyn[idx, ]
+  y_sub <- y_AlloVsSyn[idx]
+  
+  cvfit <- cv.glmnet(
+    x_sub,
+    y_sub,
+    family = "binomial",
+    alpha = best_alpha,
+    foldid = 1:length(y_sub),
+    type.measure = "deviance",
+    standardize = TRUE
+  )
+  
+  coef_mat <- coef(cvfit, s = "lambda.1se")
+  genes <- rownames(coef_mat)[coef_mat[,1] != 0]
+  genes <- setdiff(genes, "(Intercept)")
+  
+  selected_list[[i]] <- genes
+}
+
+#Select Genes which appear atleast 70% of times
+all_genes <- colnames(x_AlloVsSyn)
+
+freq <- sapply(all_genes, function(g) {
+  mean(sapply(selected_list, function(s) g %in% s))
+})
+
+freq_table <- data.frame(
+  gene = names(freq),
+  selection_frequency = freq
+)
+freq_table <- freq_table[order(freq_table$selection_frequency, decreasing = TRUE), ]
+stable_genes <- subset(freq_table, selection_frequency >= 0.7) #Select genes appearing atleast 70 percent of time
+stable_genes
+
+
+#Plot Heatmp and PCA using Selected Genes 
+stable_gene_names <- stable_genes$gene
+mat_stable <- mat_enet[stable_gene_names, , drop = FALSE]
+mat_scaled <- t(scale(t(mat_stable)))
+annotation_col <- data.frame(
+  Day = cd$Day,
+  Group = cd$Group
+)
+rownames(annotation_col) <- colnames(mat_scaled)
+
+
+annotation_colors <- list(
+  Group = c(
+    "Control Allogeneic" = "#FF2400",   # Scarlet
+    "Control Syngeneic" = "#2E6F40"     # green
+  ),
+  Day = c(
+    "7" = "#F28E6B",
+    "14" = "#6FA287"
+  )
+)
+
+pheatmap(
+  mat_scaled,
+  annotation_col = annotation_col,
+  annotation_colors = annotation_colors,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  show_rownames = TRUE,
+  show_colnames = FALSE,
+  fontsize = 14,
+  fontsize_row = 12,
+  fontsize_col = 10,
+  color = colorRampPalette(c("navy","white","firebrick3"))(100),
+  main = "Allogeneic Vs Syngeneic Signature"
+)
+
+#PCA Analysis
+mat_pca <- t(mat_stable)
+pca <- prcomp(mat_pca, scale. = TRUE)
+pca_df <- data.frame(
+  PC1 = pca$x[,1],
+  PC2 = pca$x[,2],
+  Group = cd$Group
+)
+
+# Define colors & shapes
+group_colors <- c("Control Allogeneic" = "#E60000", "Control Syngeneic" = "#2E6F40" )
+group_shapes <- c("Control Allogeneic" = 25, "Control Syngeneic" = 24)
+
+ggplot(pca_df, aes(PC1, PC2, color = Group,, shape = Group)) +
+  geom_point(aes(fill = Group), size = 5, stroke = 1.2) +
+  stat_ellipse(geom = "polygon", alpha = 0.2, aes(fill = Group), show.legend = FALSE, level = 0.7) +
+  scale_color_manual(values = group_colors) +
+  scale_fill_manual(values = group_colors) +
+  scale_shape_manual(values = group_shapes) +
+  theme_classic(base_size = 18) +
+  labs(
+    title = "PCA of Stable Elastic Net Genes",
+    x = paste0("PC1 (", round(100 * summary(pca)$importance[2,1],1), "%)"),
+    y = paste0("PC2 (", round(100 * summary(pca)$importance[2,2],1), "%)")
+  ) +
+  theme(
+    legend.position = "top",
+    axis.title = element_text(size = 20, face = "bold"),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 1),
+    panel.grid = element_blank()
+  )
 
 
 ## GSEA Analysis----
 # Paths to your saved results
-d7_path  <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/DESEQResults_Day7_Allo_vs_Syn.csv"
-d14_path <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/DESEQResults_Day14_Allo_vs_Syn.csv"
-
-# Spot-check a known rejection gene (e.g., Ifng) if present:
-d7["Ifng", c("log2FoldChange","stat","padj")]
-d14["Ifng", c("log2FoldChange","stat","padj")]
+d7_path  <- "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Allogeneic_Vs_Syngeneic/DESEQResults_Day7_Allo_vs_Syn.csv"
+d14_path <- "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Allogeneic_Vs_Syngeneic/DESEQResults_Day14_Allo_vs_Syn.csv"
+day_combined<-"/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Allogeneic_Vs_Syngeneic/DESEQResults_DayCombined_Allo_vs_Syn.csv"
 
 # Import
-d7  <- read.csv(d7_path,  row.names = 1)
-d14 <- read.csv(d14_path, row.names = 1)
+d7_ALLOvSYN  <- read.csv(d7_path,  row.names = 1)
+d14_ALLOvSYN <- read.csv(d14_path, row.names = 1)
+daycombined_ALLOvSYN<- read.csv(day_combined, row.names = 1)
 
 # Build ranked gene lists using DESeq2 Wald stat
-lfc_vector_d7  <- d7$stat;  names(lfc_vector_d7)  <- rownames(d7)
-lfc_vector_d14 <- d14$stat; names(lfc_vector_d14) <- rownames(d14)
+lfc_vector_d7  <- d7_ALLOvSYN$stat;  names(lfc_vector_d7)  <- rownames(d7_ALLOvSYN)
+lfc_vector_d14 <- d14_ALLOvSYN$stat; names(lfc_vector_d14) <- rownames(d14_ALLOvSYN)
+lfc_vector_AlloSyn <- daycombined_ALLOvSYN$stat; names(lfc_vector_AlloSyn) <- rownames(daycombined_ALLOvSYN)
 
 # Drop NAs
 lfc_vector_d7  <- lfc_vector_d7[!is.na(lfc_vector_d7)]
 lfc_vector_d14 <- lfc_vector_d14[!is.na(lfc_vector_d14)]
+lfc_vector_AlloSyn<- lfc_vector_AlloSyn[!is.na(lfc_vector_AlloSyn)]
 
 # Sort decreasing (required by clusterProfiler::GSEA)
 lfc_vector_d7  <- sort(lfc_vector_d7,  decreasing = TRUE)
 lfc_vector_d14 <- sort(lfc_vector_d14, decreasing = TRUE)
+lfc_vector_AlloSyn<- sort(lfc_vector_AlloSyn, decreasing = TRUE)
 
-library(msigdbr)
-library(dplyr)
 
 # --- Collect each set and convert into 2-column (gs_name, gene_symbol) ---
 
@@ -609,12 +688,8 @@ mm_kegg_df <- data.frame(
   gs_name = rep(names(mm_kegg_sets), sapply(mm_kegg_sets, length)),
   gene_symbol = unlist(mm_kegg_sets)
 )
-
-# --- Final combined TERM2GENE data frame ---
 mm_all_df <- rbind(mm_c8_df, mm_h_df, mm_kegg_df)
 
-library(clusterProfiler)
-library(msigdbr)
 # Day 7
 gsea_results_d7 <- GSEA(
   geneList      = lfc_vector_d7,
@@ -624,7 +699,6 @@ gsea_results_d7 <- GSEA(
   eps           = 0,
   seed          = TRUE,
   pAdjustMethod = "BH",
-  #keyType       = "SYMBOL",       # <- tell it explicitly
   TERM2GENE     = mm_all_df
 )
 gsea_results_d7_df <- as.data.frame(gsea_results_d7)
@@ -643,55 +717,60 @@ gsea_results_d14 <- GSEA(
 gsea_results_d14_df <- as.data.frame(gsea_results_d14)
 
 
+# Combined
+
+gsea_results_daycombined_allosyn <- GSEA(
+  geneList      = lfc_vector_AlloSyn,
+  minGSSize     = 5,
+  maxGSSize     = 500,
+  pvalueCutoff  = 0.1,
+  eps           = 0,
+  seed          = TRUE,
+  pAdjustMethod = "BH",
+  TERM2GENE     = mm_all_df
+)
+gsea_results_daycombined_allosyn_df <- as.data.frame(gsea_results_daycombined_allosyn)
+
+
 # Full results Day 7
 write.csv(gsea_results_d7_df,
-          "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/GSEAResults_AlloVsSyn_Day7.csv",
+          "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Allogeneic_Vs_Syngeneic/GSEAResults_AlloVsSyn_Day7.csv",
           row.names = FALSE)
 
 # Full results Day 14
 write.csv(gsea_results_d14_df,
-          "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/GSEAResults_AlloVsSyn_Day14.csv",
+          "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Allogeneic_Vs_Syngeneic/GSEAResults_AlloVsSyn_Day14.csv",
+          row.names = FALSE)
+
+# Full results Day Combined
+write.csv(gsea_results_daycombined_allosyn_df,
+          "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Allogeneic_Vs_Syngeneic/GSEAResults_AlloVsSyn_DayCombined.csv",
           row.names = FALSE)
 
 
-library(dplyr)
-library(stringr)
-library(ggplot2)
+# Per Day Plot
 
 # Your curated list EXACTLY as provided (de-dup just in case)
 immune_master <- unique(c(
-  "HALLMARK_E2F_TARGETS",
-  "HALLMARK_MYC_TARGETS_V2",
-  "KEGG_TRYPTOPHAN_METABOLISM",
-  "KEGG_GLYCINE_SERINE_AND_THREONINE_METABOLISM",
-  "KEGG_PRIMARY_BILE_ACID_BIOSYNTHESIS",
   "HALLMARK_ALLOGRAFT_REJECTION",
-  "KEGG_GRAFT_VERSUS_HOST_DISEASE",
-  "KEGG_T_CELL_RECEPTOR_SIGNALING_PATHWAY",
-  "KEGG_B_CELL_RECEPTOR_SIGNALING_PATHWAY",
-  "KEGG_NATURAL_KILLER_CELL_MEDIATED_CYTOTOXICITY",
-  "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
   "HALLMARK_INTERFERON_GAMMA_RESPONSE",
-  "HALLMARK_IL2_STAT5_SIGNALING",
-  "HALLMARK_IL6_JAK_STAT3_SIGNALING",
-  "HALLMARK_TGF_BETA_SIGNALING",
-  "HALLMARK_COMPLEMENT",
-  "HALLMARK_APOPTOSIS",
-  "CUI_DEVELOPING_HEART_C8_MACROPHAGE",
-  "HALLMARK_ANGIOGENESIS",
-  "HALLMARK_HYPOXIA",
+  "HALLMARK_INTERFERON_ALPHA_RESPONSE",
+  "KEGG_T_CELL_RECEPTOR_SIGNALING_PATHWAY",
+  "KEGG_NATURAL_KILLER_CELL_MEDIATED_CYTOTOXICITY",
+  #"HALLMARK_TNFA_SIGNALING_VIA_NFKB",
+  #"HALLMARK_TGF_BETA_SIGNALING",
+  "AIZARANI_LIVER_C5_NK_NKT_CELLS_3",
   "HALLMARK_INFLAMMATORY_RESPONSE",
-  "HALLMARK_MTORC1_SIGNALING",
-  "HALLMARK_P53_PATHWAY",
-  "JONES_OVARY_T_CELL",
-  "JONES_OVARY_MACROPHAGE",
-  "DESCARTES_FETAL_INTESTINE_LYMPHOID_CELLS",
+  "KEGG_CYTOSOLIC_DNA_SENSING_PATHWAY",
+  "AIZARANI_LIVER_C6_KUPFFER_CELLS_2",
   "DESCARTES_FETAL_LIVER_LYMPHOID_CELLS",
-  "KEGG_ANTIGEN_PROCESSING_AND_PRESENTATION",
-  "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
-  "KEGG_JAK_STAT_SIGNALING_PATHWAY",
-  "KEGG_NOD_LIKE_RECEPTOR_SIGNALING_PATHWAY",
-  "KEGG_TOLL_LIKE_RECEPTOR_SIGNALING_PATHWAY"
+  "DESCARTES_FETAL_PANCREAS_LYMPHOID_CELLS",
+  "KEGG_PPAR_SIGNALING_PATHWAY",
+  "KEGG_PEROXISOME",
+  "KEGG_SPHINGOLIPID_METABOLISM",
+  "KEGG_TRYPTOPHAN_METABOLISM",
+  #Down
+  "HALLMARK_TGF_BETA_SIGNALING"
 ))
 
 # Helper to standardize clusterProfiler GSEA columns
@@ -729,9 +808,9 @@ plot_df$gs_name <- factor(plot_df$gs_name, levels = rev(immune_master))
 # Plot: rows = pathways, columns = Day; size = −log10(padj); color = NES
 p <- ggplot(plot_df, aes(x = Day, y = gs_name)) +
   geom_point(aes(size = logp, color = NES)) +
-  scale_size_continuous(name = "−log10(padj)", range = c(2, 8)) +
+  scale_size_continuous(name = "−log10(padj)", range = c(1, 10)) +
   scale_color_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0, name = "NES") +
-  labs(x = "", y = "", title = "Enriched Pathways") +
+  labs(x = "", y = "", title = "Allogeneic vs Syngeneic") +
   theme_bw() +
   theme(
     axis.text.y  = element_text(size = 10),
@@ -741,80 +820,166 @@ p <- ggplot(plot_df, aes(x = Day, y = gs_name)) +
 print(p)
 
 
+# Combined Day Plot
 
-## GSVA Analysis----
-library(GSVA)
-library(msigdbr)
-library(limma)
-library(BiocParallel)
+library(forcats)
+pathways_of_interest <- unique(c(
+  "HALLMARK_INTERFERON_GAMMA_RESPONSE",
+  "HALLMARK_INTERFERON_ALPHA_RESPONSE",
+  "KEGG_COMPLEMENT_AND_COAGULATION_CASCADES",
+  "DESCARTES_FETAL_LIVER_LYMPHOID_CELLS",
+  "DESCARTES_FETAL_PANCREAS_LYMPHOID_CELLS",
+  "KEGG_RETINOL_METABOLISM",
+  "KEGG_TYROSINE_METABOLISM",
+  "KEGG_TRYPTOPHAN_METABOLISM",
+  "KEGG_VALINE_LEUCINE_AND_ISOLEUCINE_DEGRADATION",
+  "KEGG_BUTANOATE_METABOLISM",
+  "KEGG_STEROID_BIOSYNTHESIS",
+  #Down
+  "HALLMARK_INFLAMMATORY_RESPONSE",
+  "HALLMARK_TGF_BETA_SIGNALING",
+  "KEGG_INSULIN_SIGNALING_PATHWAY",
+  "AIZARANI_LIVER_C23_KUPFFER_CELLS_3",
+  "HALLMARK_IL6_JAK_STAT3_SIGNALING",
+  "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
+  "HALLMARK_IL6_JAK_STAT3_SIGNALING",
+  "KEGG_NOD_LIKE_RECEPTOR_SIGNALING_PATHWAY",
+  "KEGG_TOLL_LIKE_RECEPTOR_SIGNALING_PATHWAY",
+  "HALLMARK_GLYCOLYSIS",
+  "HALLMARK_E2F_TARGETS",
+  "HAY_BONE_MARROW_NEUTROPHIL",
+  "KEGG_B_CELL_RECEPTOR_SIGNALING_PATHWAY",
+  "KEGG_MAPK_SIGNALING_PATHWAY",
+  "KEGG_CHEMOKINE_SIGNALING_PATHWAY"
+))
 
-vsd  <- vst(dds_IsletTransplant_AlloVsSyn, blind = TRUE)
-expr <- assay(vsd)
-meta <- as.data.frame(colData(dds_IsletTransplant_AlloVsSyn))
+# Subset and prepare plotting data
+plot_df <- gsea_results_daycombined_allosyn_df %>%
+  filter(ID %in% pathways_of_interest) %>%
+  mutate(
+    neglog10_padj = -log10(p.adjust),
+    neglog10_padj = ifelse(is.infinite(neglog10_padj), NA, neglog10_padj),
+    Direction = ifelse(NES >= 0, "Up in Allo", "Down in Allo")
+  ) %>%
+  arrange(NES) %>%
+  mutate(
+    ID = factor(ID, levels = ID)
+  )
 
-# Make sure factors are clean
-meta$Group <- factor(meta$Group, levels = c("Control Accepted", "Control Rejected"))
-meta$Batch <- factor(meta$Batch)
+# Plot
+ggplot(plot_df, aes(x = NES, y = ID, size = neglog10_padj, color = NES)) +
+  geom_point(alpha = 0.9) +
+  scale_size_continuous(name = expression(-log[10](adjusted~italic(p))), range = c(3, 10)) +
+  scale_color_gradient2(
+    low = "forestgreen",
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    name = "NES"
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Normalized Enrichment Score (NES)",
+    y = NULL,
+    title = "Allogeneic vs Syngeneic"
+  ) +
+  theme(
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+
+## Islet Single Cell Mapping----
+
+IsletScRNA = readRDS("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Islet ScRNASeq/islet_graft_seurat_v7.rds")
+IsletScRNA$celltype<-Idents(IsletScRNA)
+IsletScRNA$condition[IsletScRNA$condition == "Allogenic"] <- "Allogeneic"
+DimPlot(IsletScRNA,label = TRUE, label.box = T,label.size = 8,repel = T,pt.size = 0.9)+
+  NoAxes() +NoLegend()
+DimPlot(IsletScRNA,label = TRUE, label.box = T,label.size = 8,repel = T,group.by = "condition",pt.size = 0.9)+
+  NoAxes() +NoLegend()
+#Downregulated and Upregulated wrt Allo vs Syn
+downregulated_Signature <- c("Cd59b","Rep15","Shisa9","Gdf3","Xist","Eif2s3x","Kdm6a","Lncpint","Ifitm5","Malat1","Myo3b")
+upregulated_Signature <- c("Hipk4","S1pr5","Trpm6","Tctn2","Lhfpl4","Ido2","Fsip1","Emx2os","Hlf","Gfra1","Bmp5","Col6a5","Myh3","Cbs","Vtn")
+
+downregulated_Signature_use <- intersect(downregulated_Signature, rownames(IsletScRNA))
+upregulated_Signature_use <- intersect(upregulated_Signature, rownames(IsletScRNA))
+
+combined_signature_use<-c(upregulated_Signature_use,downregulated_Signature_use)
+DotPlot(IsletScRNA, features = combined_signature_use) +
+  scale_color_gradient(low = "grey", high = "red") +
+  scale_size(range = c(0, 8), limits = c(0, 100)) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title = element_blank()
+  )
 
 
-c8   <- msigdbr(species="Mus musculus", category="C8")
-hall <- msigdbr(species="Mus musculus", category="H")
-kegg <- msigdbr(species="Mus musculus", category="C2", subcategory="CP:KEGG_LEGACY")
-
-sets <- c(
-  split(c8$gene_symbol,   c8$gs_name),
-  split(hall$gene_symbol, hall$gs_name),
-  split(kegg$gene_symbol, kegg$gs_name)
-)
+# Elastic Net Score
+expr <- GetAssayData(IsletScRNA,layer = "data")
+up_score <- colMeans(expr[upregulated_Signature_use, ])
+down_score <- colMeans(expr[downregulated_Signature_use, ])
+IsletScRNA$ElasticNetSignature <- up_score - down_score
 
 
-pick_day <- function(day) which(meta$Day %in% c(day, paste0("Day",day),"D",day))
 
-expr_d7  <- expr[, pick_day(7)]
-expr_d14 <- expr[, pick_day(14)]
-meta_d7  <- meta[pick_day(7),]
-meta_d14 <- meta[pick_day(14),]
+plot_df <- IsletScRNA@meta.data %>%
+  dplyr::select(celltype, condition, ElasticNetSignature) %>%
+  filter(!is.na(celltype), !is.na(condition), !is.na(ElasticNetSignature)) %>%
+  filter(condition %in% c("Allogeneic", "Syngeneic"))
 
+plot_df$condition <- factor(plot_df$condition, levels = c("Syngeneic", "Allogeneic"))
 
-param <- MulticoreParam(workers = max(1, parallel::detectCores() - 1))
-gsva_par_d7 <- gsvaParam(
-  expr_d7,           # VST matrix
-  sets,            # your gene sets
-  kcdf        = "Gaussian",        # since it's log-like VST data
-  minSize     = 5,
-  maxSize     = 500
-)
-es_d7 <- gsva(gsva_par_d7)
-
-gsva_par_d14 <- gsvaParam(
-  expr_d14,           # VST matrix
-  sets,            # your gene sets
-  kcdf        = "Gaussian",        # since it's log-like VST data
-  minSize     = 5,
-  maxSize     = 500
-)
-es_d14 <- gsva(gsva_par_d14)
+stat_df <- plot_df %>%
+  group_by(celltype) %>%
+  summarise(
+    p_value = tryCatch(
+      wilcox.test(ElasticNetSignature ~ condition)$p.value,
+      error = function(e) NA_real_
+    ),
+    y_pos = 0.15,#max(ElasticNetSignature, na.rm = TRUE) + 0.15 * diff(range(ElasticNetSignature, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    p_adj = p.adjust(p_value, method = "BH"),
+    label = paste0("FDR=", signif(p_adj, 2))
+  )
+stat_df <- stat_df %>%
+  mutate(label = paste0("FDR=", signif(p_adj, 2)))
 
 
-run_limma <- function(es, meta) {
-  design <- model.matrix(~ 0 + Group + Batch, data = meta)
-  colnames(design) <- make.names(colnames(design))
-  
-  fit  <- lmFit(es, design)
-  contr <- makeContrasts(Rejected_vs_Accepted = GroupControl.Rejected - GroupControl.Accepted,
-                         levels = design)
-  fit2 <- eBayes(contrasts.fit(fit, contr))
-  topTable(fit2, number=Inf, sort.by="P")
-}
+ggplot(plot_df, aes(x = condition, y = ElasticNetSignature, fill = condition)) +
+  geom_violin(scale = "width", trim = TRUE, alpha = 0.8) +
+  geom_boxplot(width = 0.15, outlier.shape = NA, fill = "white") +
+  geom_jitter(width = 0.15, size = 0.1, alpha = 0.0) +
+  facet_wrap(~celltype, nrow = 2) +
+  geom_text(
+    data = stat_df,
+    aes(x = 1.5, y = y_pos, label = label),
+    inherit.aes = FALSE,
+    size = 5
+  ) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = NULL,
+    y = "Niche-Based Signature Score",
+    title = "Niche-Based Signature Score Across Islet Graft Cell Types",
+  ) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+  )+
+  scale_fill_manual(
+    values = c(
+      "Syngeneic" = "forestgreen",
+      "Allogeneic" = "red"
+    )
+  ) +coord_cartesian(ylim = c(-1.2, 0.2))
 
-GSVA_res_d7  <- run_limma(es_d7,  meta_d7)
-GSVA_res_d14 <- run_limma(es_d14, meta_d14)
 
-# # Save results
-write.csv(es_d7,  "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/GSVAScores_AlloVsSyn_Day7.csv")
-write.csv(es_d14, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/GSVAScores_AlloVsSyn_Day14.csv")
-write.csv(GSVA_res_d7,  "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/GSVAStats_AlloVsSyn_Day7.csv")
-write.csv(GSVA_res_d14, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/GSVAStats_AlloVsSyn_Day14.csv")
+
 
 # 5. Allo+Anti-CD40L-Rejected vs Tolerance-----
 
@@ -979,24 +1144,7 @@ EnhancedVolcano(
   selectLab     = selLab_d14_REJVSTOL
 )
 
-## Interactions- Day x Group----
-EnhancedVolcano(res_interaction_df_REJvTOL,
-                lab = rownames(res_interaction_df_REJvTOL),
-                pCutoff       = 0.10,
-                FCcutoff      = 1,
-                ylim = c(0,4),
-                boxedLabels   = TRUE,
-                pointSize     =3,
-                labSize       = 6,
-                colAlpha      = 0.8,
-                max.overlaps = 15,
-                drawConnectors= TRUE,
-                legendPosition= "right",
-                x = "log2FoldChange",
-                y = "padj",
-                xlab          = expression("log"[2]*"(Fold Change)"),
-                ylab          = expression("-log"[10]*"(FDR)"),
-                title = "Interaction: (Day 14 vs 7) × (Rej vs Tol)")
+
 
 ## Timepoints Combined----
 
@@ -2182,6 +2330,17 @@ draw(
 )
 
 # 6. Allo Tolerance Vs Syngeneic-----
+
+library(biomaRt)
+
+mart <- useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+
+gene_info <- getBM(
+  attributes = c("ensembl_gene_id", "start_position", "end_position"),
+  mart = mart
+)
+
+gene_info$gene_length <- gene_info$end_position - gene_info$start_position
 
 sel <- colData(dds_IsletTransplant)$Group %in% c("Control Accepted","Tolerance")  & colData(dds_IsletTransplant)$Day %in% c(7,14,28,42,56,70)
 #IS- Immunosuppressed
