@@ -17,7 +17,7 @@ library(vctrs)
 
 # Import Data ----
 getwd()
-allo_data_dir <- "C:/Users/17343/Desktop/IsletTransplantRejection/IsletSingleCellData/Allogeneic"
+allo_data_dir <- "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Islet ScRNASeq/Allogeneic"
 allo_counts <- Read10X(data.dir = allo_data_dir)
 allo_seurat <- CreateSeuratObject(
   counts = allo_counts,
@@ -25,7 +25,7 @@ allo_seurat <- CreateSeuratObject(
   min.cells = 3,
   min.features = 200)
 rm(allo_counts)
-syn_data_dir <- "C:/Users/17343/Desktop/IsletTransplantRejection/IsletSingleCellData/Syngeneic"
+syn_data_dir <- "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Islet ScRNASeq/Syngeneic"
 syn_counts <- Read10X(data.dir = syn_data_dir)
 syn_seurat <- CreateSeuratObject(
   counts = syn_counts,
@@ -50,7 +50,7 @@ VlnPlot(syn_seurat, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), nc
 plot1_syn <- FeatureScatter(syn_seurat, feature1 = "nCount_RNA", feature2 = "percent.mt")
 plot2_syn <- FeatureScatter(syn_seurat, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
 plot1_syn + plot2_syn
-s
+
 # Subset the data
 allo_seurat <- subset(allo_seurat, subset = nFeature_RNA > 200 & percent.mt < 5)
 syn_seurat <- subset(syn_seurat, subset = nFeature_RNA > 200 & percent.mt < 5)

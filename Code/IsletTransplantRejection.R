@@ -1,7 +1,7 @@
 # File Info ----
 # Author: Jyotirmoy Roy
 # Title: Analysis for Islet Transplant Rejection
-# Date Created: October 2024
+# Date Created: October 2025
 # Info: 
 # Ref: 
 # Load libraries ----
@@ -24,7 +24,7 @@ library(stringr)
 library(msigdbr)
 library(dplyr)
 library(clusterProfiler)
-
+library(gghalves)
 
 
 # 1. Load the Data ----
@@ -440,6 +440,7 @@ pheatmap(
 
 ## Elastic Net Feature Selection----
 
+
 # DO analysis for timepoint combined
 design(dds_IsletTransplant_AlloVsSyn) <- ~ Batch +  Day + Group  #IEQ not included since it is higher in allo vs syn group and a function of group
 keep <- rowSums(counts(dds_IsletTransplant_AlloVsSyn) >= 10) >= 4  # Smallest number of samples in a group
@@ -519,12 +520,19 @@ set.seed(123)
 n_iter <- 1000
 n_samples <- nrow(x_AlloVsSyn)
 
+
+class1_idx <- which(y_AlloVsSyn == unique(y_AlloVsSyn)[1])
+class2_idx <- which(y_AlloVsSyn == unique(y_AlloVsSyn)[2])
+
 selected_list <- vector("list", n_iter)
 
 for (i in 1:n_iter) {
   
   # Subsample ~80% of samples each time
-  idx <- sample(1:n_samples, size = round(0.8 * n_samples))
+
+  idx1 <- sample(class1_idx, size = round(0.8 * length(class1_idx)))
+  idx2 <- sample(class2_idx, size = round(0.8 * length(class2_idx)))
+  idx  <- c(idx1, idx2)
   
   x_sub <- x_AlloVsSyn[idx, ]
   y_sub <- y_AlloVsSyn[idx]
@@ -824,6 +832,7 @@ print(p)
 
 library(forcats)
 pathways_of_interest <- unique(c(
+  # Up in Allo
   "HALLMARK_INTERFERON_GAMMA_RESPONSE",
   "HALLMARK_INTERFERON_ALPHA_RESPONSE",
   "KEGG_COMPLEMENT_AND_COAGULATION_CASCADES",
@@ -835,14 +844,12 @@ pathways_of_interest <- unique(c(
   "KEGG_VALINE_LEUCINE_AND_ISOLEUCINE_DEGRADATION",
   "KEGG_BUTANOATE_METABOLISM",
   "KEGG_STEROID_BIOSYNTHESIS",
-  #Down
+  #Down in Allo
   "HALLMARK_INFLAMMATORY_RESPONSE",
   "HALLMARK_TGF_BETA_SIGNALING",
-  "KEGG_INSULIN_SIGNALING_PATHWAY",
   "AIZARANI_LIVER_C23_KUPFFER_CELLS_3",
   "HALLMARK_IL6_JAK_STAT3_SIGNALING",
   "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
-  "HALLMARK_IL6_JAK_STAT3_SIGNALING",
   "KEGG_NOD_LIKE_RECEPTOR_SIGNALING_PATHWAY",
   "KEGG_TOLL_LIKE_RECEPTOR_SIGNALING_PATHWAY",
   "HALLMARK_GLYCOLYSIS",
@@ -892,16 +899,60 @@ ggplot(plot_df, aes(x = NES, y = ID, size = neglog10_padj, color = NES)) +
 
 ## Islet Single Cell Mapping----
 
-IsletScRNA = readRDS("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Islet ScRNASeq/islet_graft_seurat_v7.rds")
-IsletScRNA$celltype<-Idents(IsletScRNA)
-IsletScRNA$condition[IsletScRNA$condition == "Allogenic"] <- "Allogeneic"
+IsletScRNA = readRDS("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Islet ScRNASeq/islet_graft_seurat_v8.rds")
 DimPlot(IsletScRNA,label = TRUE, label.box = T,label.size = 8,repel = T,pt.size = 0.9)+
   NoAxes() +NoLegend()
-DimPlot(IsletScRNA,label = TRUE, label.box = T,label.size = 8,repel = T,group.by = "condition",pt.size = 0.9)+
-  NoAxes() +NoLegend()
+DimPlot(
+  IsletScRNA,
+  label = TRUE,
+  label.box = TRUE,
+  label.size = 8,
+  repel = TRUE,
+  group.by = "condition",
+  pt.size = 0.9,
+  cols = c(
+    "Allogeneic" = "red",
+    "Syngeneic" = "forestgreen"
+  )
+) +
+  NoAxes() +
+  NoLegend()
+count_df <- IsletScRNA@meta.data %>%
+  dplyr::select(celltype, condition) %>%
+  dplyr::filter(condition %in% c("Allogeneic", "Syngeneic")) %>%
+  dplyr::group_by(celltype, condition) %>%
+  dplyr::summarise(n = dplyr::n(), .groups = "drop")
+
+
+count_df$celltype <- factor(count_df$celltype)
+count_df$condition <- factor(count_df$condition, levels = c("Syngeneic", "Allogeneic"))
+
+ggplot(count_df, aes(x = celltype, y = n, fill = condition)) +
+  geom_bar(stat = "identity", width = 0.75) +
+  scale_fill_manual(
+    values = c(
+      "Syngeneic" = "forestgreen",
+      "Allogeneic" = "red"
+    )
+  ) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Cell Types",
+    y = "Number of cells",
+    title = "Islet Graft Cell Counts"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 18),
+    axis.text.y = element_text(size = 18),
+    axis.title.y = element_text(size = 20),
+    axis.title.x = element_text(size = 20),
+    legend.title = element_blank()
+  )
+
+### Elastic Net Score ----
 #Downregulated and Upregulated wrt Allo vs Syn
-downregulated_Signature <- c("Cd59b","Rep15","Shisa9","Gdf3","Xist","Eif2s3x","Kdm6a","Lncpint","Ifitm5","Malat1","Myo3b")
-upregulated_Signature <- c("Hipk4","S1pr5","Trpm6","Tctn2","Lhfpl4","Ido2","Fsip1","Emx2os","Hlf","Gfra1","Bmp5","Col6a5","Myh3","Cbs","Vtn")
+downregulated_Signature <- c("Myo18b","Cd59b","Rep15","Shisa9","Rragb","Gdf3","Xist","Eif2s3x","Kdm6a","Lncpint","Ifitm5","Malat1","Myo3b")
+upregulated_Signature <- c("Hipk4","S1pr5","Trpm6","Tctn2","Lhfpl4","Ido2","Fsip1","Emx2os","Hlf","Gfra1","Bmp5","Col6a5","Myh3","Cbs","Vtn","Dnah8","Sybu")
 
 downregulated_Signature_use <- intersect(downregulated_Signature, rownames(IsletScRNA))
 upregulated_Signature_use <- intersect(upregulated_Signature, rownames(IsletScRNA))
@@ -978,28 +1029,252 @@ ggplot(plot_df, aes(x = condition, y = ElasticNetSignature, fill = condition)) +
     )
   ) +coord_cartesian(ylim = c(-1.2, 0.2))
 
+### ssGSEA Pathway Score ----
+colnames(mm_all_df)
+pathways_of_interest_updated <- unique(c(
+  # Up in Allo
+  "HALLMARK_INTERFERON_GAMMA_RESPONSE",
+  "HALLMARK_INTERFERON_ALPHA_RESPONSE",
+  "KEGG_COMPLEMENT_AND_COAGULATION_CASCADES",
+  "KEGG_RETINOL_METABOLISM",
+  "KEGG_TYROSINE_METABOLISM",
+  "KEGG_TRYPTOPHAN_METABOLISM",
+  "KEGG_VALINE_LEUCINE_AND_ISOLEUCINE_DEGRADATION",
+  "KEGG_BUTANOATE_METABOLISM",
+  "KEGG_STEROID_BIOSYNTHESIS",
+  #Down in Allo
+  "HALLMARK_INFLAMMATORY_RESPONSE",
+  "HALLMARK_TGF_BETA_SIGNALING",
+  "HALLMARK_IL6_JAK_STAT3_SIGNALING",
+  "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
+  "KEGG_NOD_LIKE_RECEPTOR_SIGNALING_PATHWAY",
+  "KEGG_TOLL_LIKE_RECEPTOR_SIGNALING_PATHWAY",
+  "HALLMARK_GLYCOLYSIS",
+  "HALLMARK_E2F_TARGETS",
+  "KEGG_MAPK_SIGNALING_PATHWAY",
+  "KEGG_CHEMOKINE_SIGNALING_PATHWAY"
+))
 
 
+gene_sets_list <- mm_all_df %>%
+  filter(gs_name %in% pathways_of_interest_updated) %>%
+  distinct(gs_name, gene_symbol) %>%
+  group_by(gs_name) %>%
+  summarise(genes = list(unique(gene_symbol)), .groups = "drop") %>%
+  deframe()
 
-# 5. Allo+Anti-CD40L-Rejected vs Tolerance-----
+expr <- GetAssayData(IsletScRNA, assay = "SCT", layer = "data")
+gene_sets_list <- lapply(gene_sets_list, function(gs) intersect(gs, rownames(expr)))
+gene_sets_list <- gene_sets_list[sapply(gene_sets_list, length) >= 5]
+sapply(gene_sets_list, length)
+
+ssgsea_par <- ssgseaParam(
+  exprData = expr,
+  geneSets = gene_sets_list,
+  assay = NA_character_,
+  annotation = NULL,
+  minSize = 5,
+  maxSize = 500,
+  normalize = TRUE,
+  checkNA = "auto",
+  use = "everything",
+  verbose = TRUE
+)
+ssgsea_scores <- gsva(ssgsea_par)
+
+ssgsea_df <- as.data.frame(t(ssgsea_scores)) %>%
+  rownames_to_column("cell")
+
+meta_df <- IsletScRNA@meta.data %>%
+  rownames_to_column("cell")
+
+meta_ssgsea <- meta_df %>%
+  left_join(ssgsea_df, by = "cell")
+
+
+summary_long <- meta_ssgsea %>%
+  filter(condition %in% c("Allogeneic", "Syngeneic")) %>%
+  select(celltype, condition, all_of(rownames(ssgsea_scores))) %>%
+  pivot_longer(
+    cols = all_of(rownames(ssgsea_scores)),
+    names_to = "pathway",
+    values_to = "score"
+  ) %>%
+  group_by(celltype, condition, pathway) %>%
+  summarise(
+    mean_score = mean(score, na.rm = TRUE),
+    median_score = median(score, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+heatmap_df <- summary_long %>%
+  select(celltype, condition, pathway, mean_score) %>%
+  pivot_wider(names_from = condition, values_from = mean_score) %>%
+  mutate(delta_Allo_minus_Syn = Allogeneic - Syngeneic)
+
+heatmap_mat <- heatmap_df %>%
+  select(celltype, pathway, delta_Allo_minus_Syn) %>%
+  pivot_wider(names_from = pathway, values_from = delta_Allo_minus_Syn) %>%
+  column_to_rownames("celltype") %>%
+  as.matrix()
+
+stats_long <- meta_ssgsea %>%
+  filter(condition %in% c("Allogeneic", "Syngeneic")) %>%
+  select(celltype, condition, all_of(rownames(ssgsea_scores))) %>%
+  pivot_longer(
+    cols = all_of(rownames(ssgsea_scores)),
+    names_to = "pathway",
+    values_to = "score"
+  ) %>%
+  group_by(celltype, pathway) %>%
+  summarise(
+    p_value = tryCatch(wilcox.test(score ~ condition)$p.value, error = function(e) NA_real_),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    p_adj = p.adjust(p_value, method = "BH"),
+    sig = case_when(
+      is.na(p_adj) ~ "",
+      p_adj < 0.001 ~ "***",
+      p_adj < 0.01 ~ "**",
+      p_adj < 0.05 ~ "*",
+      TRUE ~ ""
+    )
+  )
+
+sig_mat <- stats_long %>%
+  select(celltype, pathway, sig) %>%
+  pivot_wider(names_from = pathway, values_from = sig) %>%
+  column_to_rownames("celltype") %>%
+  as.matrix()
+library(circlize)
+library(ComplexHeatmap)
+col_fun <- colorRamp2(
+  c(min(heatmap_mat, na.rm = TRUE), 0, max(heatmap_mat, na.rm = TRUE)),
+  c("forestgreen", "white", "red")
+)
+
+max_val <- max(abs(heatmap_mat), na.rm = TRUE)
+
+# Visulaize all the pathways
+ht<-Heatmap(
+  heatmap_mat,
+  name = "Allo - Syn",
+  col = col_fun,
+  cluster_rows = FALSE,
+  cluster_columns = TRUE,
+  row_names_side = "left",
+  column_names_rot = 45,
+  heatmap_legend_param = list(title = "ssGSEA score diff"),
+  cell_fun = function(j, i, x, y, width, height, fill) {
+    grid::grid.text(sig_mat[i, j], x, y, gp = grid::gpar(fontsize = 12))
+  }
+)
+
+draw(
+  ht,
+  padding = unit(c(30, 40, 10, 10), "mm")  # top, right, bottom, left
+)
+
+#  # Plot the Interferons 
+# 
+# unique(meta_ssgsea$celltype)
+# lymphoid_celltypes <- c("NK", "BCell", "CD8_T", "Treg", "Tconv")
+# 
+# ifn_plot_df <- meta_ssgsea %>%
+#   filter(condition %in% c("Allogeneic", "Syngeneic")) %>%
+#   filter(celltype %in% lymphoid_celltypes) %>%
+#   select(
+#     celltype, condition,
+#     HALLMARK_INTERFERON_GAMMA_RESPONSE,
+#     HALLMARK_INTERFERON_ALPHA_RESPONSE
+#   ) %>%
+#   pivot_longer(
+#     cols = c(HALLMARK_INTERFERON_GAMMA_RESPONSE,
+#              HALLMARK_INTERFERON_ALPHA_RESPONSE),
+#     names_to = "pathway",
+#     values_to = "score"
+#   )
+# 
+# ifn_plot_df$condition <- factor(ifn_plot_df$condition,
+#                                 levels = c("Syngeneic", "Allogeneic"))
+# 
+# ifn_plot_df$celltype <- factor(ifn_plot_df$celltype,
+#                                levels = lymphoid_celltypes)
+# 
+# ifn_plot_df$pathway <- factor(
+#   ifn_plot_df$pathway,
+#   levels = c("HALLMARK_INTERFERON_GAMMA_RESPONSE",
+#              "HALLMARK_INTERFERON_ALPHA_RESPONSE"),
+#   labels = c("IFN~gamma~Response", "IFN~alpha~Response")
+# )
+# 
+# ifn_stat_df <- ifn_plot_df %>%
+#   group_by(celltype, pathway) %>%
+#   summarise(
+#     p_value = tryCatch(
+#       wilcox.test(score ~ condition)$p.value,
+#       error = function(e) NA_real_
+#     ),
+#     median_Syngeneic  = median(score[condition == "Syngeneic"], na.rm = TRUE),
+#     median_Allogeneic = median(score[condition == "Allogeneic"], na.rm = TRUE),
+#     y_pos = 0.65,#max(score, na.rm = TRUE) + 0.08 * diff(range(score, na.rm = TRUE)),
+#     .groups = "drop"
+#   ) %>%
+#   mutate(
+#     p_adj = p.adjust(p_value, method = "BH"),
+#     label = paste0("\nFDR=", signif(p_adj, 2))
+#   )
+# 
+# ggplot(ifn_plot_df, aes(x = condition, y = score, fill = condition)) +
+#   geom_violin(scale = "width", trim = TRUE, alpha = 0.8) +
+#   geom_boxplot(width = 0.15, outlier.shape = NA, fill = "white") +
+#   facet_grid(pathway ~ celltype, scales = "free_y", labeller = label_parsed) +
+#   geom_text(
+#     data = ifn_stat_df,
+#     aes(x = 1.5, y = y_pos, label = label),
+#     inherit.aes = FALSE,
+#     size = 4
+#   ) +
+#   scale_fill_manual(
+#     values = c(
+#       "Syngeneic" = "forestgreen",
+#       "Allogeneic" = "red"
+#     )
+#   ) +
+#   theme_classic(base_size = 16) +
+#   labs(
+#     x = NULL,
+#     y = "ssGSEA score",
+#     title = "Interferon Pathway Enrichment in Islet Lymphoids"
+#   ) +
+#   theme(
+#     strip.text = element_text(face = "bold"),
+#     axis.text.x = element_text(angle = 45, hjust = 1),
+#     legend.position = "none"
+#   )
+
+
+# 5. Allo+Anti-CD40L-Rejection vs Acceptance-----
 
 # subset samples
-sel <- colData(dds_IsletTransplant)$Group %in% c("Tolerance","Rejected") & colData(dds_IsletTransplant)$Day %in% c(7,14)
-dds_IsletTransplant_RejVsTol <- dds_IsletTransplant[, sel]
+sel <- colData(dds_IsletTransplant)$Group %in% c("Acceptance","Rejection") & colData(dds_IsletTransplant)$Day %in% c(7,14)
+dds_IsletTransplant_RejVsAccep <- dds_IsletTransplant[, sel]
 
-dds_IsletTransplant_RejVsTol$Batch       <- factor(dds_IsletTransplant_RejVsTol$Batch)
-dds_IsletTransplant_RejVsTol$LibraryPrep <- factor(dds_IsletTransplant_RejVsTol$LibraryPrep)
-dds_IsletTransplant_RejVsTol$Group <- factor(
-  dds_IsletTransplant_RejVsTol$Group,
-  levels = c("Tolerance", "Rejected")  # order sets baseline
+dds_IsletTransplant_RejVsAccep$Batch       <- factor(dds_IsletTransplant_RejVsAccep$Batch)
+dds_IsletTransplant_RejVsAccep$LibraryPrep <- factor(dds_IsletTransplant_RejVsAccep$LibraryPrep)
+dds_IsletTransplant_RejVsAccep$Group <- factor(
+  dds_IsletTransplant_RejVsAccep$Group,
+  levels = c("Acceptance", "Rejection")  # order sets baseline
 )
-levels(dds_IsletTransplant_RejVsTol$Group)
+levels(dds_IsletTransplant_RejVsAccep$Group)
 
-dds_IsletTransplant_RejVsTol$Day <- factor(dds_IsletTransplant_RejVsTol$Day,
+dds_IsletTransplant_RejVsAccep$Day <- factor(dds_IsletTransplant_RejVsAccep$Day,
                                             levels = c(7, 14))  # baseline = 7
 levels(dds_IsletTransplant_RejVsTol$Day)
 
-cd <- as.data.frame(colData(dds_IsletTransplant_RejVsTol))
+cd <- as.data.frame(colData(dds_IsletTransplant_RejVsAccep))
 mm <- model.matrix(~ Batch + LibraryPrep + Day + Group, data = cd)
 qr_mm <- qr(mm)
 
@@ -1009,55 +1284,34 @@ dropped <- if (qr_mm$rank < ncol(mm)) colnames(mm)[qr_mm$pivot[(qr_mm$rank+1):nc
 kept
 dropped
 
+boxplot(logIEQ ~ Group, data = colData(dds_IsletTransplant_RejVsAccep)) #Signficantly different between groups
+
+table(cd$Group,cd$Day)
 #Design Formula
-design(dds_IsletTransplant_RejVsTol) <- ~ Batch + Day + Group + Day:Group
-dds_IsletTransplant_RejVsTol <- DESeq(dds_IsletTransplant_RejVsTol)
-design(dds_IsletTransplant_RejVsTol)
-resultsNames(dds_IsletTransplant_RejVsTol)
+table(cd$Group,cd$Day)# Check the minimum number of samples in a group
+keep <- rowSums(counts(dds_IsletTransplant_RejVsAccep) >= 10) >= 5  # Smallest number in Rejection group
+dds_IsletTransplant_RejVsAccep <- dds_IsletTransplant_RejVsAccep[keep, ]
+design(dds_IsletTransplant_RejVsAccep) <- ~ Batch + Day + Group 
+dds_IsletTransplant_RejVsAccep <- DESeq(dds_IsletTransplant_RejVsAccep)
+design(dds_IsletTransplant_RejVsAccep)
+resultsNames(dds_IsletTransplant_RejVsAccep)
 
-# Day 7
-res_REJvTOL_D7 <- results(dds_IsletTransplant_RejVsTol,
-                           name = "Group_Rejected_vs_Tolerance")
+# Combined Timepoints
+res_REJvACCEP_ALL <- results(dds_IsletTransplant_RejVsAccep,
+                          name = "Group_Rejection_vs_Acceptance")
 
-# Day 14
-res_REJvTOL_D14 <- results(dds_IsletTransplant_RejVsTol,
-                            list(c("Group_Rejected_vs_Tolerance",
-                                   "Day14.GroupRejected")))
+summary(res_REJvACCEP_ALL)
 
-# Interactions
-res_interaction_df_REJvTOL <- results(dds_IsletTransplant_RejVsTol,
-                           name = "Day14.GroupRejected")
-res_interaction_df_REJvTOL <- as.data.frame(res_interaction_df_REJvTOL)
-res_interaction_df_REJvTOL$gene <- rownames(res_interaction_df_REJvTOL)
+ALL_REJVSACCEP  <- as.data.frame(res_REJvACCEP_ALL);  ALL_REJVSACCEP$gene  <- rownames(res_REJvACCEP_ALL)
 
-summary(res_REJvTOL_D7)
-summary(res_REJvTOL_D14)
-
-library(EnhancedVolcano)
-
-# Thresholds
-q_cut  <- 0.10
-fc_cut <- 1
-
-library(EnhancedVolcano)
-
-## 0) Prep results as data.frames with a 'gene' column
-d7_REJVSTOL  <- as.data.frame(res_REJvTOL_D7);  d7_REJVSTOL$gene  <- rownames(res_REJvTOL_D7)
-d14_REJVSTOL <- as.data.frame(res_REJvTOL_D14); d14_REJVSTOL$gene <- rownames(res_REJvTOL_D14)
-
-write.csv(d7_REJVSTOL, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsRejection_AntiCD40LTreated/DESEQResults_Day7_Rejection_vs_Tolerance.csv", row.names = TRUE)
-write.csv(d14_REJVSTOL, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsRejection_AntiCD40LTreated/DESEQResults_Day14_Rejection_vs_Tolerancen.csv", row.names = TRUE)
-write.csv(res_interaction_df_REJvTOL, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsRejection_AntiCD40LTreated/DESEQResults_InteractionTimeGroup_Rejection_vs_Tolerance.csv", row.names = TRUE)
-
+write.csv(ALL_REJVSACCEP, "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Rejection_Vs_Acceptance_aCD40L/DESEQResults_RejvsAccep_DaysCombined.csv", row.names = TRUE)
 # Function to create color mapping
-make_keyvals_fdr_fc_TolvsRej <- function(df, q = 0.10, fc = 1,
-                                          col_up = "#D62728", col_down = "#1F77B4", col_ns = "gray70") {
+make_keyvals_fdr_fc_RejvsAccep <- function(df, q = 0.10, fc = 1,
+                                col_up = "#D62728", col_down = "#1F77B4", col_ns = "gray70") {
   # valid stats (for coloring); everything else becomes NS
   ok   <- !is.na(df$padj) & !is.na(df$log2FoldChange)
-  
   up   <- ok & df$padj < q & df$log2FoldChange >=  fc
   down <- ok & df$padj < q & df$log2FoldChange <= -fc
-  
   # default color + label
   key   <- rep(col_ns, nrow(df))
   label <- rep("Not significant", nrow(df))
@@ -1067,948 +1321,235 @@ make_keyvals_fdr_fc_TolvsRej <- function(df, q = 0.10, fc = 1,
   key[down] <- col_down
   
   label[up]   <- paste0("Rejection-Upregulated")
-  label[down] <- paste0("Tolerance-Upregulated")
-  
-  names(key) <- label        # <- legend labels; no NAs
-  key
-}
-keyvals_d7  <- make_keyvals_fdr_fc_TolvsRej(d7_REJVSTOL)
-keyvals_d14 <- make_keyvals_fdr_fc_TolvsRej(d14_REJVSTOL)
-
-library(dplyr)
-pick_labels <- function(df, q = 0.10, fc = 1, topN = 30) {
-  idx <- which(!is.na(df$padj) & !is.na(df$log2FoldChange) &
-                 df$padj < q & abs(df$log2FoldChange) >= fc)
-  if (length(idx) == 0) return(character(0))
-  ord <- order(df$padj[idx], -abs(df$log2FoldChange[idx]), na.last = NA)  # tie-break by |LFC|
-  labs <- df$gene[idx][ord]
-  labs <- make.unique(labs)  # avoid dup labels
-  labs[seq_len(min(topN, length(labs)))]
-}
-
-selLab_d7_REJVSTOL  <- pick_labels(d7_REJVSTOL,  q_cut, fc_cut, 30)
-selLab_d14_REJVSTOL <- pick_labels(d14_REJVSTOL, q_cut, fc_cut, 30)
-
-
-## 3) Axis limits
-xmax_d7  <- max(2, ceiling(max(abs(d7_REJVSTOL$log2FoldChange),  na.rm=TRUE)))
-xmax_d14 <- max(2, ceiling(max(abs(d14_REJVSTOL$log2FoldChange), na.rm=TRUE)))
-
-## Volcano: Day 7----
-EnhancedVolcano(
-  d7_REJVSTOL,
-  lab           = d7_REJVSTOL$gene,
-  x             = "log2FoldChange",
-  y             = "padj",
-  pCutoff       = 0.10,          # FDR threshold
-  FCcutoff      = 1,
-  xlab          = expression("log"[2]*"(Fold Change)"),
-  ylab          = expression("-log"[10]*"(FDR)"),
-  title         = "Rejection vs Tolerance — Day 7",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(d7_REJVSTOL$padj<0.10 & abs(d7_REJVSTOL$log2FoldChange)>=1, na.rm=TRUE), ")"),
-  xlim          = c(-xmax_d7, xmax_d7),
-  ylim = c(0,6),
-  boxedLabels   = TRUE,
-  pointSize     = 3,
-  labSize       = 6,
-  colAlpha      = 0.8,
-  drawConnectors= TRUE,
-  max.overlaps = 15,
-  colCustom     = keyvals_d7,
-  legendPosition= "right",
-  selectLab     = selLab_d7_REJVSTOL
-)
-
-## Volcano: Day 14----
-EnhancedVolcano(
-  d14_REJVSTOL,
-  lab           = d14_REJVSTOL$gene,
-  x             = "log2FoldChange",
-  y             = "padj",
-  pCutoff       = 0.10,
-  FCcutoff      = 1,
-  xlab          = expression("log"[2]*"(Fold Change)"),
-  ylab          = expression("-log"[10]*"(FDR)"),
-  title         = "Rejection vs Tolerance — Day 14",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(d14_REJVSTOL$padj<0.10 & abs(d14_REJVSTOL$log2FoldChange)>=1, na.rm=TRUE), ")"),
-  xlim          = c(-xmax_d14, xmax_d14),
-  ylim = c(0,9),
-  boxedLabels   = TRUE,
-  pointSize     =3,
-  labSize       = 6,
-  colAlpha      = 0.8,
-  max.overlaps = 35,
-  drawConnectors= TRUE,
-  colCustom     = keyvals_d14,
-  legendPosition= "right",
-  selectLab     = selLab_d14_REJVSTOL
-)
-
-
-
-## Timepoints Combined----
-
-design(dds_IsletTransplant_RejVsTol) <- ~ Batch + Day + Group
-dds_IsletTransplant_RejVsTol <- DESeq(dds_IsletTransplant_RejVsTol)
-resultsNames(dds_IsletTransplant_RejVsTol)
-
-# Combined Timrpoints
-res_REJvTOL_ALL <- results(dds_IsletTransplant_RejVsTol,
-                          name = "Group_Rejected_vs_Tolerance")
-
-summary(res_REJvTOL_ALL)
-
-
-library(EnhancedVolcano)
-
-# Thresholds
-q_cut  <- 0.10
-fc_cut <- 1
-
-library(EnhancedVolcano)
-
-## 0) Prep results as data.frames with a 'gene' column
-ALL_REJVSTOL  <- as.data.frame(res_REJvTOL_ALL);  ALL_REJVSTOL$gene  <- rownames(res_REJvTOL_ALL)
-
-write.csv(ALL_REJVSTOL, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsRejection_AntiCD40LTreated/DESEQResults_Day7_14_Combined_Rejection_vs_Tolerance.csv", row.names = TRUE)
-
-
-keyvals_ALL  <- make_keyvals_fdr_fc_TolvsRej(ALL_REJVSTOL)
-
-library(dplyr)
-
-selLab_ALL_REJVSTOL  <- pick_labels(ALL_REJVSTOL,  q_cut, fc_cut, 30)
-
-
-## 3) Axis limits
-xmax_ALL  <- max(2, ceiling(max(abs(ALL_REJVSTOL$log2FoldChange),  na.rm=TRUE)))
-
-EnhancedVolcano(
-  ALL_REJVSTOL,
-  lab           = ALL_REJVSTOL$gene,
-  x             = "log2FoldChange",
-  y             = "padj",
-  pCutoff       = 0.10,          # FDR threshold
-  FCcutoff      = 1,
-  xlab          = expression("log"[2]*"(Fold Change)"),
-  ylab          = expression("-log"[10]*"(FDR)"),
-  title         = "Rejection vs Tolerance — Combined Timepoints",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(ALL_REJVSTOL$padj<0.10 & abs(ALL_REJVSTOL$log2FoldChange)>=1, na.rm=TRUE), ")"),
-  xlim          = c(-xmax_ALL, xmax_ALL),
-  ylim = c(0,8),
-  boxedLabels   = TRUE,
-  pointSize     = 3,
-  labSize       = 6,
-  colAlpha      = 0.8,
-  drawConnectors= TRUE,
-  max.overlaps = 35,
-  colCustom     = keyvals_ALL,
-  legendPosition= "right",
-  selectLab     = selLab_ALL_REJVSTOL
-)
-
-## PLSDA Analysis-Combined Timepoints ----
-
-library(DESeq2)
-library(limma)
-library(mixOmics)
-library(ggplot2)
-library(ComplexHeatmap)
-library(circlize)
-
-# --- Build the  label from your fitted object ---
-CountsRejVsTol <- as.data.frame(colData(dds_IsletTransplant_RejVsTol))
-
-# --- Variance-stabilized expression ---
-vsd <- vst(dds_IsletTransplant_RejVsTol, blind = FALSE)
-mat <- assay(vsd)  # genes x samples
-# --- Remove batch (for visualization only) ---
-mat_corr <- removeBatchEffect(mat, batch = colData(vsd)$Batch)
-
-# --- PLS-DA input: samples x genes ---
-X <- t(mat_corr)   # samples in rows
-Y <- CountsRejVsTol$Group        # factor with 4 levels
-
-set.seed(123)
-plsda_model <- mixOmics::plsda(X, Y, ncomp = 2)
-
-# Scores for LV1 & LV2
-scores <- plsda_model$variates$X
-plot_df <- data.frame(
-  LV1   = scores[, 1],
-  LV2   = scores[, 2],
-  Group = Y
-)
-
-
-group_colors <- c(
-  "Rejected"  = "#D62728",  # base red
-  "Tolerance"  = "#08306B"  # darker shade of blue (navy/steel blue)
-)
-group_shapes <- c(
-  "Rejected"  = 16,
-  "Tolerance"   = 15
-)
-
-
-expl_var <- round(plsda_model$prop_expl_var$X * 100, 1)  # % explained variance for X
-xlab <- paste0("PLS Component 1 (", expl_var[1], "%)")
-ylab <- paste0("PLS Component 2 (", expl_var[2], "%)")
-
-# 2D PLS-DA plot (LV1 vs LV2) with filled ellipses
-ggplot(plot_df, aes(x = LV1, y = LV2, color = Group, shape = Group)) +
-  # points
-  geom_point(size = 5, alpha = 0.9) +
-  # filled confidence ellipses (70% or 68% CI both common)
-  stat_ellipse(
-    geom  = "polygon", 
-    aes(fill = Group), 
-    level = 0.70, 
-    alpha = 0.3, 
-    show.legend = FALSE
-  ) +
-  # custom colors, shapes
-  scale_color_manual(values = group_colors) +
-  scale_fill_manual(values  = group_colors) +
-  scale_shape_manual(values = group_shapes) +
-  # labels
-  labs(
-    title = "PLS-DA: Rejection vs Tolerance",
-    x = xlab,
-    y = ylab
-  ) +
-  # minimal but with axis lines
-  theme_minimal(base_size = 18) +
-  theme(
-    legend.position   = "top",
-    legend.title      = element_blank(),
-    axis.title        = element_text(size = 20, face = "bold"),
-    axis.text         = element_text(size = 16, color = "black"),
-    axis.line         = element_line(color = "black", linewidth = 0.8),
-    axis.ticks        = element_line(color = "black"),
-    panel.grid        = element_blank(),
-    plot.title        = element_text(size = 20, face = "bold", hjust = 0.5),
-    plot.margin       = unit(c(10, 40, 10, 10), "pt")  # top, right, bottom, left
-  )
-
-# Get VIP scores
-vip_scores <- vip(plsda_model)
-# Extract only Component 1
-vip_axis1 <- vip_scores[, 1]
-vip_df_axis1 <- data.frame(
-  Gene = rownames(vip_scores),
-  VIP_Axis1 = vip_axis1
-)
-#Sort by descending VIP
-vip_df_axis1 <- vip_df_axis1[order(-vip_df_axis1$VIP_Axis1), ]
-#Save to CSV
-write.csv(vip_df_axis1, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsRejection_AntiCD40LTreated/VIP_scores_RejVsTol_PLS1.csv", row.names = FALSE)
-# Rank genes by VIP (descending)
-top100_genes <- names(sort(vip_scores[, 1], decreasing = TRUE))[1:100]
-mat_top100 <- mat_corr[top100_genes, ]
-anno <- data.frame(
-  Group = Y,        # group labels (factor)
-  row.names = colnames(mat_top100)
-)
-
-anno_colors <- list(
-  Group = group_colors   # same color scheme you used before
-)
-
-Y <- factor(Y, levels = c("Tolerance","Rejected"))
-
-# Reorder the columns of the matrix based on group
-sample_order <- order(Y)
-mat_top100_ordered <- mat_top100[, sample_order]
-anno_ordered <- anno[sample_order, , drop = FALSE]
-pheatmap(
-  mat_top100_ordered,
-  scale = "row",                  # row-wise z-score
-  annotation_col = anno_ordered,          # add group annotation
-  annotation_colors = anno_colors,
-  cluster_rows = TRUE,
-  cluster_cols = TRUE,
-  show_rownames = TRUE,
-  show_colnames = FALSE,
-  fontsize_row = 8,
-  fontsize_col = 10,
-  color = colorRampPalette(c("navy", "white", "firebrick3"))(50) # publication-style
-)
-
-### Error Rate in PLSDA----
-# Ensure Y is a factor (important)
-Y <- factor(Y)
-
-set.seed(123)
-perf_plsda <- perf(plsda_model,
-                   validation = "Mfold",
-                   folds = 5,
-                   nrepeat = 10,          # increase if you want more stable estimates
-                   dist = "max.dist",     # common choice; try "centroids.dist" too
-                   progressBar = TRUE)
-
-## 1) Overall classification error rate (per component, per repeat)
-perf_plsda$error.rate$overall        # matrix: repeats x ncomp
-
-## Mean overall error across repeats (per component)
-colMeans(perf_plsda$error.rate$overall, na.rm = TRUE)
-
-## 2) Balanced error rate (handles class imbalance)
-perf_plsda$error.rate$BER            # matrix: repeats x ncomp
-colMeans(perf_plsda$error.rate$BER, na.rm = TRUE)
-
-##) 95% CI for error (quick & dirty via repeats)
-er <- perf_plsda$error.rate$overall
-mean_er <- colMeans(er, na.rm = TRUE)
-se_er   <- apply(er, 2, function(x) sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x))))
-ci_low  <- mean_er - 1.96 * se_er
-ci_high <- mean_er + 1.96 * se_er
-data.frame(comp = seq_along(mean_er), mean_er, ci_low, ci_high)
-
-## Immune Markers ----
-
-library(DESeq2)
-library(pheatmap)
-library(limma)
-
-
-# Define immune gene list (same as before)
-immune_genes <- c("Cd3d","Cd3e","Cd3g","Cd247","Trac","Trbc1","Trbc2","Cd4","Cd8a","Cd8b1",
-                  "Cd28","Ctla4","Icos","Pdcd1","Lag3","Havcr2","Tnfrsf9","Tnfrsf18","Tnfrsf4","Cd40lg",
-                  "Gzma","Gzmb","Gzmk","Prf1","Ifng","Tnf","Il2",
-                  "Foxp3","Il2ra","Ikzf2","Tnfrsf18","Ly6G",
-                  "Tbx21","Stat4","Ifng","Gata3","Il4","Il5","Il13","Rorc","Il17a","Il17f","Il21","Il22","Bcl6","Cxcr5","Tox",
-                  "Itgax","Zbtb46","Cd80","Cd86","Cd40","H2-Ab1","H2-Aa","H2-Eb1",
-                  "Adgre1","Cd68","Cd14","Itgam","Csf1r","Mrc1","Nos2","Arg1",
-                  "Cd19","Cd79a","Cd79b","Ms4a1","Cd22",
-                  "Ccl2","Ccl5","Cxcl9","Cxcl10","Cxcl11","Cxcr3","Ccr7","Spn")
-
-# immune_genes <- c(
-#   "Cd163","Csf2","C4b","C8a","Cfi",
-#   "Ifi202b","Il24","Ly6c1","Masp2","Mcpt4",
-#   "Plch2","S1pr5","Tac1","Zbtb16"
-# )
-vsd <- vst(dds_IsletTransplant_RejVsTol, blind = FALSE)
-mat  <- assay(vsd)
-matc <- removeBatchEffect(mat, batch = colData(vsd)$Batch)
-
-# keep only immune genes from earlier step
-mat_filt   <- matc[rownames(matc) %in% immune_genes, ]
-mat_scaled <- t(scale(t(mat_filt)))
-
-heat_colors <- colorRampPalette(c("navy","white","firebrick3"))(100)
-
-day_vec <- as.character(colData(vsd)$Day)
-group_vec <- as.character(colData(vsd)$Group)
-
-ann_colors <- list(
-  Group = c("Rejected" = "#D62728", "Tolerance" = "#1F77B4"),
-  Day   = c("7" = "gray40", "14" = "gray70")
-)
-
-for (day_sel in c("7","14")) {
-  cols_idx <- which(day_vec == day_sel)
-  
-  # reorder columns: first Control Accepted, then Control Rejected
-  order_idx <- cols_idx[order(group_vec[cols_idx])]
-  mat_day   <- mat_scaled[, order_idx, drop = FALSE]
-  
-  annotation_col <- data.frame(
-    Group = group_vec[order_idx],
-    Day   = day_vec[order_idx]
-  )
-  rownames(annotation_col) <- colnames(mat_day)
-  
-  print(
-    pheatmap(mat_day,
-             color = heat_colors,
-             annotation_col = annotation_col,
-             annotation_colors = ann_colors,
-             cluster_rows = TRUE,
-             cluster_cols = FALSE,   # no column clustering
-             show_rownames = TRUE,
-             show_colnames = TRUE,
-             fontsize_row = 8,
-             main = paste("Immune Gene Expression (Day", day_sel, ")"))
-  )
-}
-## GSEA Analysis----
-
-library(msigdbr)
-library(dplyr)
-
-# --- Collect each set and convert into 2-column (gs_name, gene_symbol) ---
-
-# C8
-CellTypeMSigDB_gene_sets <- msigdbr(species="Mus musculus", category="C8")
-mm_c8_sets <- split(CellTypeMSigDB_gene_sets$gene_symbol, CellTypeMSigDB_gene_sets$gs_name)
-mm_c8_df <- data.frame(
-  gs_name = rep(names(mm_c8_sets), sapply(mm_c8_sets, length)),
-  gene_symbol = unlist(mm_c8_sets)
-)
-
-
-# Hallmark
-hallmark <- msigdbr(species = "Mus musculus", category  = "H")
-mm_h_sets <- split(hallmark$gene_symbol, hallmark$gs_name)
-mm_h_df <- data.frame(
-  gs_name = rep(names(mm_h_sets), sapply(mm_h_sets, length)),
-  gene_symbol = unlist(mm_h_sets)
-)
-
-
-# KEGG
-kegg_all <- msigdbr(species="Mus musculus", category="C2", subcategory="CP:KEGG_LEGACY")
-mm_kegg_sets <- split(kegg_all$gene_symbol, kegg_all$gs_name)
-mm_kegg_df <- data.frame(
-  gs_name = rep(names(mm_kegg_sets), sapply(mm_kegg_sets, length)),
-  gene_symbol = unlist(mm_kegg_sets)
-)
-
-# --- Final combined TERM2GENE data frame ---
-mm_all_df <- rbind(mm_c8_df, mm_h_df, mm_kegg_df)
-
-library(clusterProfiler)
-library(msigdbr)
-### Combined Timepoints----
-# Paths to your saved results
-ALL_REJVSTOL_path  <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsRejection_AntiCD40LTreated/DESEQResults_Day7_14_Combined_Rejection_vs_Tolerance.csv"
-
-# Import
-ALL_REJVSTOL  <- read.csv(ALL_REJVSTOL_path,  row.names = 1)
-
-# Build ranked gene lists using DESeq2 Wald stat
-lfc_vector_ALL_REJVSTOL  <- ALL_REJVSTOL$stat;  names(lfc_vector_ALL_REJVSTOL)  <- rownames(ALL_REJVSTOL)
-
-
-# Drop NAs
-lfc_vector_ALL_REJVSTOL  <- lfc_vector_ALL_REJVSTOL[!is.na(lfc_vector_ALL_REJVSTOL)]
-
-# Sort decreasing (required by clusterProfiler::GSEA)
-lfc_vector_ALL_REJVSTOL  <- sort(lfc_vector_ALL_REJVSTOL,  decreasing = TRUE)
-
-gsea_results_ALL_REJVSTOL <- GSEA(
-  geneList      = lfc_vector_ALL_REJVSTOL,
-  minGSSize     = 5,
-  maxGSSize     = 500,
-  pvalueCutoff  = 1,
-  eps           = 0,
-  seed          = TRUE,
-  pAdjustMethod = "BH",
-  #keyType       = "SYMBOL",       # <- tell it explicitly
-  TERM2GENE     = mm_all_df
-)
-gsea_results_ALL_REJVSTOL <- as.data.frame(gsea_results_ALL_REJVSTOL)
-
-
-# Full results Combined Timepoins
-write.csv(gsea_results_ALL_REJVSTOL,
-          "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsRejection_AntiCD40LTreated/GSEAResults_RejectionVsTolerance_CombinedTimepoints.csv",
-          row.names = FALSE)
-
-
-library(dplyr)
-library(stringr)
-library(ggplot2)
-
-# Your curated list EXACTLY as provided (de-dup just in case)
-immune_master_ALLREJVSTOL <- unique(c(
-  #UPREGULATED
-  # Immune proliferation / effector programs
-  # Immune/inflammatory
-  "HALLMARK_TNFA_SIGNALING_VIA_NFKB","HALLMARK_INTERFERON_GAMMA_RESPONSE",
-  "HALLMARK_IL6_JAK_STAT3_SIGNALING","KEGG_JAK_STAT_SIGNALING_PATHWAY",
-  "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
-  "KEGG_TOLL_LIKE_RECEPTOR_SIGNALING_PATHWAY","KEGG_RIG_I_LIKE_RECEPTOR_SIGNALING_PATHWAY",
-  "KEGG_NOD_LIKE_RECEPTOR_SIGNALING_PATHWAY",
-  "KEGG_ALLOGRAFT_REJECTION","KEGG_GRAFT_VERSUS_HOST_DISEASE",
-  "HE_LIM_SUN_FETAL_LUNG_C2_CXCL9_POS_MACROPHAGE_CELL",
-  "TRAVAGLINI_LUNG_NATURAL_KILLER_CELL","TRAVAGLINI_LUNG_NATURAL_KILLER_T_CELL",
-  "HE_LIM_SUN_FETAL_LUNG_C4_TH17_CELL","HE_LIM_SUN_FETAL_LUNG_C4_CD8_T_CELL","HE_LIM_SUN_FETAL_LUNG_C4_CD4_T_CELL",
-  # Endothelium/vascular
-  "HALLMARK_ANGIOGENESIS",
-   # ECM/stromal activation
-  "KEGG_ECM_RECEPTOR_INTERACTION",
-  # Stress/fibrosis axis
-  "HALLMARK_HYPOXIA","HALLMARK_TGF_BETA_SIGNALING","KEGG_TGF_BETA_SIGNALING_PATHWAY",
- 
-   #DOWNREGUL:ATED
-  "HALLMARK_OXIDATIVE_PHOSPHORYLATION","KEGG_OXIDATIVE_PHOSPHORYLATION",
-  "HALLMARK_FATTY_ACID_METABOLISM","KEGG_FATTY_ACID_METABOLISM","KEGG_PPAR_SIGNALING_PATHWAY",
-  "HALLMARK_PEROXISOME","KEGG_PEROXISOME","KEGG_GLUTATHIONE_METABOLISM",
-  "HALLMARK_CHOLESTEROL_HOMEOSTASIS","HALLMARK_REACTIVE_OXYGEN_SPECIES_PATHWAY",
-  # Regulatory/naïve lymphoid
-  "HALLMARK_IL2_STAT5_SIGNALING","TRAVAGLINI_LUNG_CD4_NAIVE_T_CELL","TRAVAGLINI_LUNG_CD8_NAIVE_T_CELL",
-  # Tolerogenic myeloid
-  "HE_LIM_SUN_FETAL_LUNG_C2_APOE_POS_M2_MACROPHAGE_CELL",
-  "TRAVAGLINI_LUNG_PLASMACYTOID_DENDRITIC_CELL",
-  "KEGG_FC_GAMMA_R_MEDIATED_PHAGOCYTOSIS","KEGG_ANTIGEN_PROCESSING_AND_PRESENTATION",
-  # Islet preservation
-  "HALLMARK_PANCREAS_BETA_CELLS","VANGURP_PANCREATIC_BETA_CELL"
-))
-
-# Helper to standardize clusterProfiler GSEA columns
-coerce_gsea_tbl <- function(df, day_label){
-  # try common column names: Description/ID/pathway/setName; p.adjust/padj
-  gs  <- if ("Description" %in% names(df)) df$Description else if ("ID" %in% names(df)) df$ID else if ("pathway" %in% names(df)) df$pathway else if ("setName" %in% names(df)) df$setName else rownames(df)
-  pad <- if ("p.adjust"   %in% names(df)) df$p.adjust   else if ("padj" %in% names(df)) df$padj else df$pval
-  tibble(
-    gs_name = as.character(gs),
-    NES     = as.numeric(df$NES),
-    padj    = as.numeric(pad),
-    Day     = day_label
-  )
-}
-
-# Build tidy tables for each day
-ALL_REJVSTOL_tbl  <- coerce_gsea_tbl(gsea_results_ALL_REJVSTOL,  "Combined Timepoints")
-
-# Keep ONLY immune_master pathways
-ALL_REJVSTOL_tbl  <- ALL_REJVSTOL_tbl  %>% filter(gs_name %in% immune_master_ALLREJVSTOL)
-
-library(dplyr)
-library(ggplot2)
-
-plot_df <- ALL_REJVSTOL_tbl %>%
-  mutate(
-    padj = pmax(padj, .Machine$double.eps),
-    logp = -log10(padj)
-  ) %>%
-  arrange((NES)) %>%                     # order by NES (descending)
-  mutate(gs_name = factor(gs_name, levels = unique(gs_name)))
-
-# Dotplot: x = NES, y = pathways (ordered by NES)
-p_dot <- ggplot(plot_df, aes(x = NES, y = gs_name)) +
-  geom_point(aes(size = logp, color = NES)) +
-  scale_size_continuous(name = expression(-log[10]("padj")), range = c(2, 8)) +
-  scale_color_gradient2(low = "blue", mid = "white", high = "red",
-                        midpoint = 0, name = "NES") +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
-  labs(x = "Normalized Enrichment Score (NES)", y = NULL,
-       title = "GSEA (Rejection vs Tolerance, Combined Timepoints)") +
-  theme_bw() +
-  theme(
-    axis.text.y = element_text(size = 10),
-    axis.text.x = element_text(size = 12, face = "bold"),
-    plot.title  = element_text(hjust = 0.5, face = "bold")
-  )
-
-print(p_dot)
-
-## GSVA Analysis----
-
-library(GSVA)
-library(msigdbr)
-library(limma)
-library(BiocParallel)
-
-# VST
-vsd  <- vst(dds_IsletTransplant_RejVsTol, blind = TRUE)
-expr <- assay(vsd)
-meta <- as.data.frame(colData(dds_IsletTransplant_RejVsTol))
-
-# Factors
-meta$Group <- factor(meta$Group, levels = c("Tolerance", "Rejected"))
-if ("Batch" %in% names(meta)) meta$Batch <- factor(meta$Batch)
-
-# --- Gene sets (same as yours) ---
-c8   <- msigdbr(species = "Mus musculus", category = "C8")
-hall <- msigdbr(species = "Mus musculus", category = "H")
-kegg <- msigdbr(species = "Mus musculus", category = "C2", subcategory = "CP:KEGG_LEGACY")
-sets <- c(
-  split(c8$gene_symbol,   c8$gs_name),
-  split(hall$gene_symbol, hall$gs_name),
-  split(kegg$gene_symbol, kegg$gs_name)
-)
-# Optional: restrict to your curated list
-# sets <- sets[names(sets) %in% immune_master_ALLREJVSTOL]
-
-# --- Select Day 7 + Day 14 samples ---
-pick_day <- function(day) which(meta$Day %in% c(day, paste0("Day", day), paste0("Day ", day), paste0("D", day)))
-idx <- sort(unique(c(pick_day(7), pick_day(14))))
-
-expr_all <- expr[, idx, drop = FALSE]
-meta_all <- meta[idx, , drop = FALSE]
-
-# Normalize Day labels to two levels (Day7, Day14)
-norm_day <- function(x) {
-  x <- as.character(x)
-  out <- ifelse(grepl("(^7$|Day ?7|^D7$)", x, ignore.case = TRUE), "Day7",
-                ifelse(grepl("(^14$|Day ?14|^D14$)", x, ignore.case = TRUE), "Day14", NA))
-  # Fallback for numeric
-  out[is.na(out) & x %in% c("7")]  <- "Day7"
-  out[is.na(out) & x %in% c("14")] <- "Day14"
-  out
-}
-meta_all$Day <- factor(norm_day(meta_all$Day), levels = c("Day7","Day14"))
-
-param <- MulticoreParam(workers = max(1, parallel::detectCores() - 1))
-gsva_par <- gsvaParam(
-  expr_all,
-  sets,
-  kcdf    = "Gaussian",   # VST is log-like
-  minSize = 5,
-  maxSize = 500
-)
-es_all <- gsva(gsva_par, BPPARAM = param)  # pathway x sample
-
-# --- LIMMA on GSVA scores: Group main effect, adjusting for Day (+ Batch if present) ---
-run_limma_combined <- function(es, meta) {
-  has_day   <- "Day"   %in% names(meta) && nlevels(droplevels(meta$Day))   > 1
-  has_batch <- "Batch" %in% names(meta) && nlevels(droplevels(meta$Batch)) > 1
-  
-  # Build design: ~ 0 + Group + (Day) + (Batch)
-  terms <- c("Group", if (has_day) "Day", if (has_batch) "Batch")
-  form  <- as.formula(paste("~ 0 +", paste(terms, collapse = " + ")))
-  design <- model.matrix(form, data = meta)
-  colnames(design) <- make.names(colnames(design))
-  
-  fit  <- lmFit(es, design)
-  contr <- makeContrasts(Rejected_vs_Tolerance = GroupRejected - GroupTolerance,
-                         levels = colnames(design))
-  fit2 <- eBayes(contrasts.fit(fit, contr))
-  topTable(fit2, number = Inf, sort.by = "P")
-}
-
-GSVA_res_combined <- run_limma_combined(es_all, meta_all)
-
-# --- Save outputs ---
-out_dir <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsRejection_AntiCD40LTreated"
-write.csv(es_all,             file.path(out_dir, "GSVAScores_RejVsTol_Combined_D7_D14.csv"))
-write.csv(GSVA_res_combined,  file.path(out_dir, "GSVAStats_RejVsTol_Combined_D7_D14.csv"))
-
-library(dplyr)
-library(ComplexHeatmap)
-library(circlize)
-library(RColorBrewer)
-
-# --- Step 1: Select significant pathways
-# Rename first column as "ID"
-GSVA_res_combined$ID<-rownames(GSVA_res_combined)
-
-sig_paths <- GSVA_res_combined %>%
-  filter(P.Value < 0.05, abs(logFC) >= 0.2) %>%
-  arrange(P.Value) %>%
-  pull(ID) %>%
-  unique()
-
-# --- Step 2: Subset GSVA scores (es_all is pathways x samples)
-mat <- es_all[sig_paths, , drop = FALSE]
-
-# --- Step 3: Z-score per pathway for visualization
-Z <- t(scale(t(mat)))
-Z[is.na(Z)] <- 0
-min(Z)
-min_separators()# --- Step 4: Build sample annotations
-meta_sub <- meta_all[colnames(Z), , drop = FALSE]
-
-ann_cols <- list(
-  Group = c(Tolerance = "#1f77b4", Rejected = "#d62728"),
-  Day   = c(Day7 = "#66c2a5", Day14 = "#fc8d62")
-)
-top_anno <- HeatmapAnnotation(
-  Group = meta_sub$Group,
-  Day   = meta_sub$Day,
-  col   = ann_cols
-)
-
-# --- Step 5: Heatmap
-col_fun <- colorRamp2(c(min(Z), 0,max(Z)), c("#2b6cb0", "white", "#b91c1c"))
-
-ht <- Heatmap(
-  Z, name = "GSVA Z-score",
-  col = col_fun,
-  top_annotation = top_anno,
-  show_row_names = TRUE,
-  show_column_names = FALSE,
-  row_names_gp = gpar(fontsize = 8),
-  cluster_rows = TRUE,
-  cluster_columns = TRUE,
-  column_split = meta_sub$Group,   # split by Group for clarity
-  heatmap_legend_param = list(
-    title = "GSVA Z-score"
-  )
-)
-
-
-draw(
-  ht,
-  heatmap_legend_side = "left",
-  annotation_legend_side = "left",
-  padding = unit(c(5, 20, 5, 70), "mm")  # top, right, bottom, left
-)
-
-# 5.Allo Rejected vs Allo+Anti-CD40L Rejected -----
-
-# subset samples
-sel <- colData(dds_IsletTransplant)$Group %in% c("Control Rejected","Rejected") & colData(dds_IsletTransplant)$Day %in% c(7,14)
-#IS- Immunosuppressed
-Celldds_IsletTransplant_IS_RejVsRej <- dds_IsletTransplant[, sel]
-
-Celldds_IsletTransplant_IS_RejVsRej$Batch       <- factor(Celldds_IsletTransplant_IS_RejVsRej$Batch)
-Celldds_IsletTransplant_IS_RejVsRej$LibraryPrep <- factor(Celldds_IsletTransplant_IS_RejVsRej$LibraryPrep)
-Celldds_IsletTransplant_IS_RejVsRej$Group <- factor(
-  Celldds_IsletTransplant_IS_RejVsRej$Group,
-  levels = c("Control Rejected", "Rejected")  # order sets baseline
-)
-levels(Celldds_IsletTransplant_IS_RejVsRej$Group)
-
-Celldds_IsletTransplant_IS_RejVsRej$Day <- factor(Celldds_IsletTransplant_IS_RejVsRej$Day,
-                                           levels = c(7, 14))  # baseline = 7
-levels(Celldds_IsletTransplant_IS_RejVsRej$Day)
-
-cd <- as.data.frame(colData(Celldds_IsletTransplant_IS_RejVsRej))
-mm <- model.matrix(~ Batch + LibraryPrep + Day + Group, data = cd)
-qr_mm <- qr(mm)
-
-kept    <- colnames(mm)[qr_mm$pivot[seq_len(qr_mm$rank)]]
-dropped <- if (qr_mm$rank < ncol(mm)) colnames(mm)[qr_mm$pivot[(qr_mm$rank+1):ncol(mm)]] else character()
-
-kept
-dropped
-
-#Design Formula
-design(Celldds_IsletTransplant_IS_RejVsRej) <- ~ Batch + Day + Group 
-Celldds_IsletTransplant_IS_RejVsRej <- DESeq(Celldds_IsletTransplant_IS_RejVsRej)
-design(Celldds_IsletTransplant_IS_RejVsRej)
-resultsNames(Celldds_IsletTransplant_IS_RejVsRej)
-
-# Da7+Day14 Combined
-res_IS_REJvREJ <- results(Celldds_IsletTransplant_IS_RejVsRej,
-                          name = "Group_Rejected_vs_Control.Rejected")
-
-
-summary(res_IS_REJvREJ)
-
-## DESeq-Combined Timepoints----
-library(EnhancedVolcano)
-
-# Thresholds
-q_cut  <- 0.10
-fc_cut <- 1
-
-library(EnhancedVolcano)
-
-## 0) Prep results as data.frames with a 'gene' column
-ALL_IS_REJVSREJ  <- as.data.frame(res_IS_REJvREJ);  ALL_IS_REJVSREJ$gene  <- rownames(res_IS_REJvREJ)
-
-write.csv(ALL_IS_REJVSREJ, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/AntiCD40LRejection_Rejection/DESEQResults_Day7_14_Combined_AntiCD40L_Rejection_vs_Rejection.csv", row.names = TRUE)
-
-# Function to create color mapping
-make_keyvals_fdr_fc_IsRejvsRej <- function(df, q = 0.10, fc = 1,
-                                         col_up = "#D62728", col_down = "#1F77B4", col_ns = "gray70") {
-  # valid stats (for coloring); everything else becomes NS
-  ok   <- !is.na(df$padj) & !is.na(df$log2FoldChange)
-  
-  up   <- ok & df$padj < q & df$log2FoldChange >=  fc
-  down <- ok & df$padj < q & df$log2FoldChange <= -fc
-  
-  # default color + label
-  key   <- rep(col_ns, nrow(df))
-  label <- rep("Not significant", nrow(df))
-  
-  # overwrite where significant
-  key[up]   <- col_up
-  key[down] <- col_down
-  
-  label[up]   <- paste0("Anti-CD40L Rejection-Upregulated")
-  label[down] <- paste0("Rejection-Upregulated")
+  label[down] <- paste0("Acceptance-Upregulated")
   
   names(key) <- label        # <- legend labels; no NAs
   key
 }
 
-keyvals_ALL  <- make_keyvals_fdr_fc_IsRejvsRej(ALL_IS_REJVSREJ)
 
-library(dplyr)
+keyvals_REJVSACCEP  <- make_keyvals_fdr_fc_RejvsAccep(ALL_REJVSACCEP)
 
-selLab_ALL_IS_REJVSREJ  <- pick_labels(ALL_IS_REJVSREJ,  q_cut, fc_cut, 40)
+# Thresholds
+q_cut  <- 0.10
+fc_cut <- 1
+selLab_ALL_REJVSACCEP  <- pick_labels(ALL_REJVSACCEP,  q_cut, fc_cut, 30)
 
-
-## 3) Axis limits
-xmax_ALL  <- max(2, ceiling(max(abs(ALL_IS_REJVSREJ$log2FoldChange),  na.rm=TRUE)))
+xmax_REJVSACCEP  <- max(2, ceiling(max(abs(ALL_REJVSACCEP$log2FoldChange),  na.rm=TRUE)))
 
 EnhancedVolcano(
-  ALL_IS_REJVSREJ,
-  lab           = ALL_IS_REJVSREJ$gene,
+  ALL_REJVSACCEP,
+  lab           = ALL_REJVSACCEP$gene,
   x             = "log2FoldChange",
   y             = "padj",
   pCutoff       = 0.10,          # FDR threshold
   FCcutoff      = 1,
   xlab          = expression("log"[2]*"(Fold Change)"),
   ylab          = expression("-log"[10]*"(FDR)"),
-  title         = "Anti-CD40L Rejection vs Control Rejection — Combined Timepoints",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(ALL_IS_REJVSREJ$padj<0.10 & abs(ALL_IS_REJVSREJ$log2FoldChange)>=1, na.rm=TRUE), ")"),
-  xlim          = c(-xmax_ALL, xmax_ALL),
-  ylim = c(0,10),
+  title         = "Rejection vs Acceptance — Combined Timepoints",
+  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(ALL_REJVSACCEP$padj<0.10 & abs(ALL_REJVSACCEP$log2FoldChange)>=1, na.rm=TRUE), ")"),
+  xlim          = c(-xmax_REJVSACCEP, xmax_REJVSACCEP),
+  ylim = c(0,3),
   boxedLabels   = TRUE,
   pointSize     = 3,
   labSize       = 6,
   colAlpha      = 0.8,
   drawConnectors= TRUE,
   max.overlaps = 35,
-  colCustom     = keyvals_ALL,
+  colCustom     = keyvals_REJVSACCEP,
   legendPosition= "right",
-  selectLab     = selLab_ALL_IS_REJVSREJ
+  selectLab     = selLab_ALL_REJVSACCEP
 )
 
-## PLSDA Analysis-Combined Timepoints ----
 
-library(DESeq2)
-library(limma)
-library(mixOmics)
-library(ggplot2)
-library(ComplexHeatmap)
-library(circlize)
+## Elastic Net Feature Selection----
 
-# --- Build the  label from your fitted object ---
-CountsISRejVsRej <- as.data.frame(colData(Celldds_IsletTransplant_IS_RejVsRej))
+sig_genes_REJvACCEP <- ALL_REJVSACCEP$gene[
+  !is.na(ALL_REJVSACCEP$pvalue) &
+    ALL_REJVSACCEP$pvalue <= 0.05 &
+    abs(ALL_REJVSACCEP$log2FoldChange) >= 0.5
+]
 
-# --- Variance-stabilized expression ---
-vsd_ISRejVSRej <- vst(Celldds_IsletTransplant_IS_RejVsRej, blind = FALSE)
-mat_ISRejVSRej <- assay(vsd_ISRejVSRej)  # genes x samples
-# --- Remove batch (for visualization only) ---
-mat_corr_ISRejVSRej <- removeBatchEffect(mat_ISRejVSRej, batch = colData(vsd_ISRejVSRej)$Batch)
+length(sig_genes_REJvACCEP)
 
-# --- PLS-DA input: samples x genes ---
-X <- t(mat_corr_ISRejVSRej)   # samples in rows
-Y <- CountsISRejVsRej$Group        
+vsd <- vst(dds_IsletTransplant_RejVsAccep, blind = FALSE)
+mat <- assay(vsd)
+cd <- as.data.frame(colData(dds_IsletTransplant_RejVsAccep))
+design_enet <- model.matrix(~ Group, data = cd)
+mat_enet <- limma::removeBatchEffect(
+  mat,
+  batch = vsd$Batch,
+  covariates = model.matrix(~ Day, data = cd)[, -1, drop = FALSE],
+  design = design_enet
+)
 
+
+# expression matrix for glmnet: samples x genes
+x_RejVsAccep <- t(mat_enet[sig_genes_REJvACCEP, , drop = FALSE])
+
+# binary outcome
+y_RejVsAccep <- ifelse(cd$Group == "Rejection", 1, 0)
+
+# Find best alpha with LOOCV
 set.seed(123)
-plsda_model_ISRejVsRej <- mixOmics::plsda(X, Y, ncomp = 2)
+alpha_grid <- seq(0, 1, by = 0.1)
+cv_summary <- data.frame()
 
-# Scores for LV1 & LV2
-scores <- plsda_model_ISRejVsRej$variates$X
-plot_df <- data.frame(
-  LV1   = scores[, 1],
-  LV2   = scores[, 2],
-  Group = Y
-)
-
-
-group_colors <- c(
-  "Rejected"  = "#D62728",  # base red
-  "Control Rejected"  = "#08306B"  # darker shade of blue (navy/steel blue)
-)
-group_shapes <- c(
-  "Rejected"  = 16,
-  "Control Rejected"   = 15
-)
-
-
-expl_var <- round(plsda_model_ISRejVsRej$prop_expl_var$X * 100, 1)  # % explained variance for X
-xlab <- paste0("PLS Component 1 (", expl_var[1], "%)")
-ylab <- paste0("PLS Component 2 (", expl_var[2], "%)")
-unique(plot_df$Group)
-# 2D PLS-DA plot (LV1 vs LV2) with filled ellipses
-ggplot(plot_df, aes(x = LV1, y = LV2, color = Group, shape = Group)) +
-  # points
-  geom_point(size = 5, alpha = 0.9) +
-  # filled confidence ellipses (70% CI both common)
-  stat_ellipse(
-    geom  = "polygon", 
-    aes(fill = Group), 
-    level = 0.70, 
-    alpha = 0.3, 
-    show.legend = FALSE
-  ) +
-  # custom colors, shapes
-  scale_color_manual(values = group_colors) +
-  scale_fill_manual(values  = group_colors) +
-  scale_shape_manual(values = group_shapes) +
-  # labels
-  labs(
-    title = "PLS-DA: Anti-CD40L Rejection vs Control Rejection",
-    x = xlab,
-    y = ylab
-  ) +
-  # minimal but with axis lines
-  theme_minimal(base_size = 18) +
-  theme(
-    legend.position   = "top",
-    legend.title      = element_blank(),
-    axis.title        = element_text(size = 20, face = "bold"),
-    axis.text         = element_text(size = 16, color = "black"),
-    axis.line         = element_line(color = "black", linewidth = 0.8),
-    axis.ticks        = element_line(color = "black"),
-    panel.grid        = element_blank(),
-    plot.title        = element_text(size = 20, face = "bold", hjust = 0.5),
-    plot.margin       = unit(c(10, 40, 10, 10), "pt")  # top, right, bottom, left
+for (a in alpha_grid) {
+  cvfit <- cv.glmnet(
+    x = x_RejVsAccep,
+    y = y_RejVsAccep,
+    family = "binomial",
+    alpha = a,
+    foldid = 1:length(y_RejVsAccep),   # LOOCV
+    type.measure = "deviance",
+    standardize = TRUE
   )
+  
+  cv_summary <- rbind(
+    cv_summary,
+    data.frame(
+      alpha = a,
+      cv_error = min(cvfit$cvm),
+      lambda_min = cvfit$lambda.min,
+      lambda_1se = cvfit$lambda.1se
+    )
+  )
+}
 
-# Get VIP scores
-vip_scores_ISRejVsRej <- vip(plsda_model_ISRejVsRej)
-# Extract only Component 1
-vip_axis1_ISRejVsRej <- vip_scores_ISRejVsRej[, 1]
-vip_df_axis1_ISRejVsRej <- data.frame(
-  Gene = rownames(vip_scores_ISRejVsRej),
-  VIP_Axis1 = vip_axis1_ISRejVsRej
+cv_summary[order(cv_summary$cv_error), ]
+cv_summary
+
+best_alpha <- cv_summary$alpha[which.min(cv_summary$cv_error)]
+best_alpha<-0.3 #0,1 was best with cv error of 0.2339 but 0,3 chosen for sparser gene set (cv error:0.25356)
+
+# Stability selection
+set.seed(123)
+n_iter <- 1000
+n_samples <- nrow(x_RejVsAccep)
+
+selected_list <- vector("list", n_iter)
+
+class1_idx <- which(y_RejVsAccep == unique(y_RejVsAccep)[1])
+class2_idx <- which(y_RejVsAccep == unique(y_RejVsAccep)[2])
+
+for (i in 1:n_iter) {
+  
+  # Subsample ~80% of samples each time
+  idx1 <- sample(class1_idx, size = round(0.8 * length(class1_idx)))
+  idx2 <- sample(class2_idx, size = round(0.8 * length(class2_idx)))
+  idx  <- c(idx1, idx2)
+  
+  x_sub <- x_RejVsAccep[idx, ]
+  y_sub <- y_RejVsAccep[idx]
+  
+  cvfit <- cv.glmnet(
+    x_sub,
+    y_sub,
+    family = "binomial",
+    alpha = best_alpha,
+    foldid = 1:length(y_sub),
+    type.measure = "deviance",
+    standardize = TRUE
+  )
+  
+  coef_mat <- coef(cvfit, s = "lambda.1se")
+  genes <- rownames(coef_mat)[coef_mat[,1] != 0]
+  genes <- setdiff(genes, "(Intercept)")
+  
+  selected_list[[i]] <- genes
+}
+
+#Select Genes which appear atleast 70% of times
+all_genes <- colnames(x_RejVsAccep)
+
+freq <- sapply(all_genes, function(g) {
+  mean(sapply(selected_list, function(s) g %in% s))
+})
+
+freq_table <- data.frame(
+  gene = names(freq),
+  selection_frequency = freq
 )
-#Sort by descending VIP
-vip_df_axis1_ISRejVsRej <- vip_df_axis1_ISRejVsRej[order(-vip_df_axis1_ISRejVsRej$VIP_Axis1), ]
-#Save to CSV
-write.csv(vip_df_axis1_ISRejVsRej, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/AntiCD40LRejection_Rejection/VIP_scores_ISRejVsRej_PLS1.csv", row.names = FALSE)
-# Rank genes by VIP (descending)
-top100_genes_ISRejVsRej <- names(sort(vip_scores_ISRejVsRej[, 1], decreasing = TRUE))[1:100]
-mat_top100_ISRejVsRej <- mat_corr_ISRejVSRej[top100_genes_ISRejVsRej, ]
-anno <- data.frame(
-  Group = Y,        # group labels (factor)
-  row.names = colnames(mat_top100_ISRejVsRej)
+freq_table <- freq_table[order(freq_table$selection_frequency, decreasing = TRUE), ]
+stable_genes <- subset(freq_table, selection_frequency >= 0.7) #Select genes appearing atleast 70 percent of time
+stable_genes
+
+
+#Plot Heatmp and PCA using Selected Genes 
+stable_gene_names <- stable_genes$gene
+mat_stable <- mat_enet[stable_gene_names, , drop = FALSE]
+mat_scaled <- t(scale(t(mat_stable)))
+annotation_col <- data.frame(
+  Day = cd$Day,
+  Group = cd$Group
+)
+rownames(annotation_col) <- colnames(mat_scaled)
+
+
+annotation_colors <- list(
+  Group = c(
+    "Rejection" = "#F28500" ,   # Tangerine
+    "Acceptance" =  "#064273"   # Ocean
+  ),
+  Day = c(
+    "7" = "#F28E6B",
+    "14" = "#6FA287"
+  )
 )
 
-anno_colors <- list(
-  Group = group_colors   # same color scheme you used before
-)
-
-Y <- factor(Y, levels = c("Control Rejected","Rejected"))
-
-# Reorder the columns of the matrix based on group
-sample_order <- order(Y)
-mat_top100_ordered_ISRejVsRej <- mat_top100_ISRejVsRej[, sample_order]
-anno_ordered <- anno[sample_order, , drop = FALSE]
 pheatmap(
-  mat_top100_ordered_ISRejVsRej,
-  scale = "row",                  # row-wise z-score
-  annotation_col = anno_ordered,          # add group annotation
-  annotation_colors = anno_colors,
+  mat_scaled,
+  annotation_col = annotation_col,
+  annotation_colors = annotation_colors,
   cluster_rows = TRUE,
   cluster_cols = TRUE,
   show_rownames = TRUE,
   show_colnames = FALSE,
-  fontsize_row = 8,
+  fontsize = 14,
+  fontsize_row = 12,
   fontsize_col = 10,
-  color = colorRampPalette(c("navy", "white", "firebrick3"))(50) # publication-style
+  color = colorRampPalette(c("navy","white","firebrick3"))(100),
+  main = "Rejection Vs Acceptance Signature"
 )
 
-### Error Rate in PLSDA----
-# Ensure Y is a factor (important)
-Y <- factor(Y)
 
-set.seed(123)
-perf_plsda <- perf(plsda_model_ISRejVsRej,
-                   validation = "Mfold",
-                   folds = 5,
-                   nrepeat = 10,          # increase if you want more stable estimates
-                   dist = "max.dist",     # common choice; try "centroids.dist" too
-                   progressBar = TRUE)
+#PCA Analysis
+mat_pca <- t(mat_stable)
+pca <- prcomp(mat_pca, scale. = TRUE)
+pca_df <- data.frame(
+  PC1 = pca$x[,1],
+  PC2 = pca$x[,2],
+  Group = cd$Group
+)
 
-## 1) Overall classification error rate (per component, per repeat)
-perf_plsda$error.rate$overall        # matrix: repeats x ncomp
+# Define colors & shapes
+group_colors <- c("Rejection" = "#F28500", "Acceptance" = "#064273" )
+group_shapes <- c("Rejection" = 15, "Acceptance" = 16)
 
-## Mean overall error across repeats (per component)
-colMeans(perf_plsda$error.rate$overall, na.rm = TRUE)
+ggplot(pca_df, aes(PC1, PC2, color = Group,, shape = Group)) +
+  geom_point(aes(fill = Group), size = 5, stroke = 1.2) +
+  stat_ellipse(geom = "polygon", alpha = 0.2, aes(fill = Group), show.legend = FALSE, level = 0.7) +
+  scale_color_manual(values = group_colors) +
+  scale_fill_manual(values = group_colors) +
+  scale_shape_manual(values = group_shapes) +
+  theme_classic(base_size = 18) +
+  labs(
+    title = "PCA of Stable Elastic Net Genes",
+    x = paste0("PC1 (", round(100 * summary(pca)$importance[2,1],1), "%)"),
+    y = paste0("PC2 (", round(100 * summary(pca)$importance[2,2],1), "%)")
+  ) +
+  theme(
+    legend.position = "top",
+    axis.title = element_text(size = 20, face = "bold"),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 1),
+    panel.grid = element_blank()
+  )
 
-## 2) Balanced error rate (handles class imbalance)
-perf_plsda$error.rate$BER            # matrix: repeats x ncomp
-colMeans(perf_plsda$error.rate$BER, na.rm = TRUE)
 
-##) 95% CI for error (quick & dirty via repeats)
-er <- perf_plsda$error.rate$overall
-mean_er <- colMeans(er, na.rm = TRUE)
-se_er   <- apply(er, 2, function(x) sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x))))
-ci_low  <- mean_er - 1.96 * se_er
-ci_high <- mean_er + 1.96 * se_er
-data.frame(comp = seq_along(mean_er), mean_er, ci_low, ci_high)
+
 
 ## GSEA Analysis----
 
@@ -2046,359 +1587,291 @@ mm_kegg_df <- data.frame(
 # --- Final combined TERM2GENE data frame ---
 mm_all_df <- rbind(mm_c8_df, mm_h_df, mm_kegg_df)
 
-library(clusterProfiler)
-library(msigdbr)
-### Combined Timepoints----
+
 # Paths to your saved results
-ISREJVSREJ_path  <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/AntiCD40LRejection_Rejection/DESEQResults_Day7_14_Combined_AntiCD40L_Rejection_vs_Rejection.csv"
+ALL_REJVSACCEP_path  <- "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Rejection_Vs_Acceptance_aCD40L/DESEQResults_RejvsAccep_DaysCombined.csv"
 
 # Import
-ISREJVSREJ_path  <- read.csv(ISREJVSREJ_path,  row.names = 1)
+ALL_REJVSACCEP  <- read.csv(ALL_REJVSACCEP_path,  row.names = 1)
 
 # Build ranked gene lists using DESeq2 Wald stat
-lfc_vector_ISREJVSREJ  <- ISREJVSREJ_path$stat;  names(lfc_vector_ISREJVSREJ)  <- rownames(ISREJVSREJ_path)
+lfc_vector_ALL_REJVSACCEP  <- ALL_REJVSACCEP$stat;  names(lfc_vector_ALL_REJVSACCEP)  <- rownames(ALL_REJVSACCEP)
+
 
 # Drop NAs
-lfc_vector_ISREJVSREJ  <- lfc_vector_ISREJVSREJ[!is.na(lfc_vector_ISREJVSREJ)]
+lfc_vector_ALL_REJVSACCEP  <- lfc_vector_ALL_REJVSACCEP[!is.na(lfc_vector_ALL_REJVSACCEP)]
 
 # Sort decreasing (required by clusterProfiler::GSEA)
-lfc_vector_ISREJVSREJ  <- sort(lfc_vector_ISREJVSREJ,  decreasing = TRUE)
+lfc_vector_ALL_REJVSACCEP  <- sort(lfc_vector_ALL_REJVSACCEP,  decreasing = TRUE)
 
-gsea_results_ISREJVSREJ <- GSEA(
-  geneList      = lfc_vector_ISREJVSREJ,
+gsea_results_ALL_REJVSACCEP <- GSEA(
+  geneList      = lfc_vector_ALL_REJVSACCEP,
   minGSSize     = 5,
   maxGSSize     = 500,
-  pvalueCutoff  = 1,
+  pvalueCutoff  = 0.1,
   eps           = 0,
   seed          = TRUE,
   pAdjustMethod = "BH",
   #keyType       = "SYMBOL",       # <- tell it explicitly
   TERM2GENE     = mm_all_df
 )
-gsea_results_ISREJVSREJ <- as.data.frame(gsea_results_ISREJVSREJ)
+gsea_results_ALL_REJVSACCEP <- as.data.frame(gsea_results_ALL_REJVSACCEP)
 
 
 # Full results Combined Timepoins
-write.csv(gsea_results_ISREJVSREJ,
-          "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/AntiCD40LRejection_Rejection/GSEAResults_AntiCD40LRejectionVsControlRejection_CombinedTimepoints.csv",
+write.csv(gsea_results_ALL_REJVSACCEP,
+          "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Rejection_Vs_Acceptance_aCD40L/GSEAResults_RejvsAccep_DaysCombined.csv",
           row.names = FALSE)
 
 
-
-# Your curated list EXACTLY as provided (de-dup just in case)
-immune_master_ISREJVSREJ <- unique(c(
-  #UPREGULATED
-  # Innate myeloid / neutrophil
-  "TRAVAGLINI_LUNG_NEUTROPHIL_CELL",
-  "HAY_BONE_MARROW_NEUTROPHIL",
-  "TRAVAGLINI_LUNG_CLASSICAL_MONOCYTE_CELL",
-  "HE_LIM_SUN_FETAL_LUNG_C2_S100A12_HI_CLASSICAL_MONOCYTE",
-  "SU_HO_CONV_CENT_CHONDROSARCOMA_LEUKOCYTE_C0_M1_MACROPHAGE",
-  "TRAVAGLINI_LUNG_MACROPHAGE_CELL",
-  "HE_LIM_SUN_FETAL_LUNG_C2_CXCL9_POS_MACROPHAGE_CELL",
-  # Inflammatory signaling
+immune_master_REJVSACCEP <- unique(c(
+  #Upregukated
   "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
-  "HALLMARK_IL6_JAK_STAT3_SIGNALING",
-  "KEGG_JAK_STAT_SIGNALING_PATHWAY",
   "HALLMARK_INFLAMMATORY_RESPONSE",
-  "KEGG_TOLL_LIKE_RECEPTOR_SIGNALING_PATHWAY",
-  "KEGG_NOD_LIKE_RECEPTOR_SIGNALING_PATHWAY",
-  "KEGG_RIG_I_LIKE_RECEPTOR_SIGNALING_PATHWAY",
-  "KEGG_CHEMOKINE_SIGNALING_PATHWAY",
+  "HALLMARK_INTERFERON_GAMMA_RESPONSE",
+  "HALLMARK_IL6_JAK_STAT3_SIGNALING",
   "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
-  "KEGG_MAPK_SIGNALING_PATHWAY",
-  # NK/NKT
-  "AIZARANI_LIVER_C18_NK_NKT_CELLS_5",
-  # Injury / stress / thrombosis
-  "HALLMARK_HYPOXIA",
-  "HALLMARK_APOPTOSIS", "KEGG_APOPTOSIS", "HALLMARK_P53_PATHWAY",
+  "KEGG_ALLOGRAFT_REJECTION",
+  "KEGG_GRAFT_VERSUS_HOST_DISEASE",
+  "KEGG_CELL_ADHESION_MOLECULES_CAMS",
+  "KEGG_ADIPOCYTOKINE_SIGNALING_PATHWAY",
+  #"HE_LIM_SUN_FETAL_LUNG_C2_NEUTROPHIL_CELL",
+  "HE_LIM_SUN_FETAL_LUNG_C2_S100A12_HI_CLASSICAL_MONOCYTE",
+  #"HE_LIM_SUN_FETAL_LUNG_C4_NKT1_CELL",
+  #"DESCARTES_MAIN_FETAL_CCL19_CCL21_POSITIVE_CELLS",
+  "DESCARTES_FETAL_PANCREAS_CCL19_CCL21_POSITIVE_CELLS",
+  "TRAVAGLINI_LUNG_NATURAL_KILLER_T_CELL",
+  "HE_LIM_SUN_FETAL_LUNG_C2_CXCL9_POS_MACROPHAGE_CELL",
+  #"HALLMARK_TGF_BETA_SIGNALING",
+  #Downregulated
+  "AIZARANI_LIVER_C6_KUPFFER_CELLS_2",
+  "HE_LIM_SUN_FETAL_LUNG_C2_APOE_POS_M2_MACROPHAGE_CELL",
+  #"TRAVAGLINI_LUNG_MACROPHAGE_CELL",
+  #"AIZARANI_LIVER_C2_KUPFFER_CELLS_1",
+  #"AIZARANI_LIVER_C23_KUPFFER_CELLS_3",
+  "KEGG_ANTIGEN_PROCESSING_AND_PRESENTATION",
+  "TRAVAGLINI_LUNG_NONCLASSICAL_MONOCYTE_CELL",
+  #"TRAVAGLINI_LUNG_CLASSICAL_MONOCYTE_CELL",
+  "DESCARTES_FETAL_LIVER_MYELOID_CELLS",
+  #"DESCARTES_MAIN_FETAL_ANTIGEN_PRESENTING_CELLS",
+  "SU_HO_CONV_CENT_CHONDROSARCOMA_LEUKOCYTE_C1_M2_MACROPHAGE",
+  #"DURANTE_ADULT_OLFACTORY_NEUROEPITHELIUM_NK_CELLS",
   "KEGG_FC_GAMMA_R_MEDIATED_PHAGOCYTOSIS",
-  "HE_LIM_SUN_FETAL_LUNG_C2_PLATELET_CELL",
-  # Remodeling
-  "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION",
-  "KEGG_REGULATION_OF_AUTOPHAGY",
-    #DOWNREGULATED
-  # Proliferation / biosynthesis
-  "HALLMARK_E2F_TARGETS","HALLMARK_MYC_TARGETS_V1","HALLMARK_MYC_TARGETS_V2","HALLMARK_G2M_CHECKPOINT",
-  "KEGG_CELL_CYCLE","KEGG_DNA_REPLICATION","KEGG_RIBOSOME","KEGG_PROTEASOME",
-  "KEGG_SPLICEOSOME","KEGG_RNA_DEGRADATION","KEGG_AMINOACYL_TRNA_BIOSYNTHESIS",
-  "KEGG_PURINE_METABOLISM","KEGG_PYRIMIDINE_METABOLISM","HALLMARK_MTORC1_SIGNALING",
-  # B cell / APC
-  "HE_LIM_SUN_FETAL_LUNG_C5_PRO_B_CELL","HAY_BONE_MARROW_PRO_B",
-  "KEGG_B_CELL_RECEPTOR_SIGNALING_PATHWAY","KEGG_ANTIGEN_PROCESSING_AND_PRESENTATION",
-  # Effector T/NK
-  "TRAVAGLINI_LUNG_CD8_MEMORY_EFFECTOR_T_CELL","TRAVAGLINI_LUNG_CD4_MEMORY_EFFECTOR_T_CELL",
-  "SU_HO_CONV_CENT_CHONDROSARCOMA_LEUKOCYTE_C2_T_CELL",
-  # "TRAVAGLINI_LUNG_NATURAL_KILLER_CELL",     # <- include if consistent across contrasts
-  # Metabolic support
-  "HALLMARK_OXIDATIVE_PHOSPHORYLATION","KEGG_OXIDATIVE_PHOSPHORYLATION","KEKK_CITRATE_CYCLE_TCA_CYCLE",
-  # "HALLMARK_FATTY_ACID_METABOLISM",          # <- optional
-  # IFNα / damage
-  "HALLMARK_INTERFERON_ALPHA_RESPONSE",
-  "KEGG_COMPLEMENT_AND_COAGULATION_CASCADES","HALLMARK_COAGULATION"
+  #"DESCARTES_FETAL_THYMUS_ANTIGEN_PRESENTING_CELLS",
+  "HAY_BONE_MARROW_DENDRITIC_CELL",
+  "HALLMARK_PEROXISOME",
+  #"KEGG_PEROXISOME",
+  "HALLMARK_FATTY_ACID_METABOLISM"
+  #"KEGG_PURINE_METABOLISM",
+  #"KEGG_PYRIMIDINE_METABOLISM"
+  
 ))
 
-# Helper to standardize clusterProfiler GSEA columns
-coerce_gsea_tbl <- function(df, day_label){
-  # try common column names: Description/ID/pathway/setName; p.adjust/padj
-  gs  <- if ("Description" %in% names(df)) df$Description else if ("ID" %in% names(df)) df$ID else if ("pathway" %in% names(df)) df$pathway else if ("setName" %in% names(df)) df$setName else rownames(df)
-  pad <- if ("p.adjust"   %in% names(df)) df$p.adjust   else if ("padj" %in% names(df)) df$padj else df$pval
-  tibble(
-    gs_name = as.character(gs),
-    NES     = as.numeric(df$NES),
-    padj    = as.numeric(pad),
-    Day     = day_label
-  )
-}
 
-# Build tidy tables for each day
-ISREJVSREJ_tbl  <- coerce_gsea_tbl(gsea_results_ISREJVSREJ,  "Combined Timepoints")
-
-# Keep ONLY immune_master pathways
-ISREJVSREJ_tbl  <- ISREJVSREJ_tbl  %>% filter(gs_name %in% immune_master_ISREJVSREJ)
-
-library(dplyr)
-library(ggplot2)
-
-plot_df <- ISREJVSREJ_tbl %>%
+plot_df <- gsea_results_ALL_REJVSACCEP %>%
+  filter(ID %in% immune_master_REJVSACCEP) %>%
   mutate(
-    padj = pmax(padj, .Machine$double.eps),
-    logp = -log10(padj)
+    neglog10_padj = -log10(p.adjust),
+    neglog10_padj = ifelse(is.infinite(neglog10_padj), NA, neglog10_padj)
   ) %>%
-  arrange((NES)) %>%                     # order by NES (descending)
-  mutate(gs_name = factor(gs_name, levels = unique(gs_name)))
+  arrange(NES) %>%
+  mutate(
+    ID = factor(ID, levels = ID)
+  )
 
-# Dotplot: x = NES, y = pathways (ordered by NES)
-p_dot <- ggplot(plot_df, aes(x = NES, y = gs_name)) +
-  geom_point(aes(size = logp, color = NES)) +
-  scale_size_continuous(name = expression(-log[10]("padj")), range = c(2, 8)) +
-  scale_color_gradient2(low = "blue", mid = "white", high = "red",
-                        midpoint = 0, name = "NES") +
+
+ggplot(plot_df, aes(x = NES, y = ID, size = neglog10_padj, color = NES)) +
+  geom_point(alpha = 0.9) +
+  scale_size_continuous(name = expression(-log[10](adjusted~italic(p))), range = c(3, 10)) +
+  scale_color_gradient2(
+    low = "#064273",
+    mid = "white",
+    high = "#F28500",
+    midpoint = 0,
+    name = "NES"
+  ) +
   geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
-  labs(x = "Normalized Enrichment Score (NES)", y = NULL,
-       title = "GSEA (Anti-CD40L-Rejection vs Control Rejection)") +
-  theme_bw() +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Normalized Enrichment Score (NES)",
+    y = NULL,
+    title = "Rejection vs Acceptance"
+  ) +
   theme(
-    axis.text.y = element_text(size = 10),
-    axis.text.x = element_text(size = 12, face = "bold"),
-    plot.title  = element_text(hjust = 0.5, face = "bold")
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+## Islet Single Cell Mapping----
+
+
+
+IsletScRNA = readRDS("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Islet ScRNASeq/islet_graft_seurat_v8.rds")
+### Elastic Net Score ----
+#Downregulated and Upregulated wrt Allo vs Syn
+downregulated_RejVsAccep_Signature <- c("Ceacam19","Gp5","Tspoap1","Tymp","Pla2g2d","Treml1","Ltc4s","Fabp3","Sarm1","Cd5l","Ifi30")
+upregulated_RejVsAccep_Signature <- c("Cpa6","Snhg11","Ebf4","Dok5","Cyp2j9","Flywch2","Fibin","Nrbp2","Hs3st3a1","Ptprf","Lurap1","Eda","Cmah","Prrg1")
+
+downregulated_RejVsAccep_Signature_use <- intersect(downregulated_RejVsAccep_Signature, rownames(IsletScRNA))
+upregulated_RejVsAccep_Signature_use <- intersect(upregulated_RejVsAccep_Signature, rownames(IsletScRNA))
+
+combined_RejVsAccep_signature_use<-c(downregulated_RejVsAccep_Signature_use,upregulated_RejVsAccep_Signature_use)
+DotPlot(IsletScRNA, features = combined_RejVsAccep_signature_use) +
+  scale_color_gradient(low = "grey", high = "red") +
+  scale_size(range = c(0, 8), limits = c(0, 100)) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title = element_blank()
   )
 
-print(p_dot)
 
-## GSVA Analysis----
+# Elastic Net Score
+# Subset to allogeneic cells only
+IsletScRNA_allo <- subset(IsletScRNA, subset = condition == "Allogeneic")
 
-library(GSVA)
-library(msigdbr)
-library(limma)
-library(BiocParallel)
 
-# VST
-vsd  <- vst(Celldds_IsletTransplant_IS_RejVsRej, blind = TRUE)
-expr <- assay(vsd)
-meta <- as.data.frame(colData(Celldds_IsletTransplant_IS_RejVsRej))
+up_use <- intersect(upregulated_RejVsAccep_Signature_use, rownames(IsletScRNA_allo))
+down_use <- intersect(downregulated_RejVsAccep_Signature_use, rownames(IsletScRNA_allo))
 
-# Factors
-meta$Group <- factor(meta$Group, levels = c("Control Rejected", "Rejected"))
-if ("Batch" %in% names(meta)) meta$Batch <- factor(meta$Batch)
-
-# --- Gene sets (same as yours) ---
-c8   <- msigdbr(species = "Mus musculus", category = "C8")
-hall <- msigdbr(species = "Mus musculus", category = "H")
-kegg <- msigdbr(species = "Mus musculus", category = "C2", subcategory = "CP:KEGG_LEGACY")
-sets <- c(
-  split(c8$gene_symbol,   c8$gs_name),
-  split(hall$gene_symbol, hall$gs_name),
-  split(kegg$gene_symbol, kegg$gs_name)
-)
-# Optional: restrict to your curated list
-# sets <- sets[names(sets) %in% immune_master_ALLREJVSTOL]
-
-# --- Select Day 7 + Day 14 samples ---
-pick_day <- function(day) which(meta$Day %in% c(day, paste0("Day", day), paste0("Day ", day), paste0("D", day)))
-idx <- sort(unique(c(pick_day(7), pick_day(14))))
-
-expr_all <- expr[, idx, drop = FALSE]
-meta_all <- meta[idx, , drop = FALSE]
-
-# Normalize Day labels to two levels (Day7, Day14)
-norm_day <- function(x) {
-  x <- as.character(x)
-  out <- ifelse(grepl("(^7$|Day ?7|^D7$)", x, ignore.case = TRUE), "Day7",
-                ifelse(grepl("(^14$|Day ?14|^D14$)", x, ignore.case = TRUE), "Day14", NA))
-  # Fallback for numeric
-  out[is.na(out) & x %in% c("7")]  <- "Day7"
-  out[is.na(out) & x %in% c("14")] <- "Day14"
-  out
-}
-meta_all$Day <- factor(norm_day(meta_all$Day), levels = c("Day7","Day14"))
-
-param <- MulticoreParam(workers = max(1, parallel::detectCores() - 1))
-gsva_par <- gsvaParam(
-  expr_all,
-  sets,
-  kcdf    = "Gaussian",   # VST is log-like
-  minSize = 5,
-  maxSize = 500
-)
-es_all <- gsva(gsva_par, BPPARAM = param)  # pathway x sample
-
-# --- LIMMA on GSVA scores: Group main effect, adjusting for Day (+ Batch if present) ---
-run_limma_combined <- function(es, meta) {
-  has_day   <- "Day"   %in% names(meta) && nlevels(droplevels(meta$Day))   > 1
-  has_batch <- "Batch" %in% names(meta) && nlevels(droplevels(meta$Batch)) > 1
-  
-  # Build design: ~ 0 + Group + (Day) + (Batch)
-  terms <- c("Group", if (has_day) "Day", if (has_batch) "Batch")
-  form  <- as.formula(paste("~ 0 +", paste(terms, collapse = " + ")))
-  design <- model.matrix(form, data = meta)
-  colnames(design) <- make.names(colnames(design))
-  
-  fit  <- lmFit(es, design)
-  contr <- makeContrasts(Rejected_vs_Tolerance = GroupRejected - GroupControl.Rejected,
-                         levels = colnames(design))
-  fit2 <- eBayes(contrasts.fit(fit, contr))
-  topTable(fit2, number = Inf, sort.by = "P")
-}
-
-GSVA_res_combined <- run_limma_combined(es_all, meta_all)
-
-# --- Save outputs ---
-out_dir <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/AntiCD40LRejection_Rejection"
-write.csv(es_all,             file.path(out_dir, "GSVAScores_ISRejVsRej_Combined_D7_D14.csv"))
-write.csv(GSVA_res_combined,  file.path(out_dir, "GSVAStats_ISRejVsRej_Combined_D7_D14.csv"))
-
-library(dplyr)
-library(ComplexHeatmap)
-library(circlize)
-library(RColorBrewer)
-
-# --- Step 1: Select significant pathways
-# Rename first column as "ID"
-GSVA_res_combined$ID<-rownames(GSVA_res_combined)
-
-sig_paths <- GSVA_res_combined %>%
-  filter(P.Value < 0.05, abs(logFC) >= 0.2) %>%
-  arrange(P.Value) %>%
-  pull(ID) %>%
-  unique()
-
-# --- Step 2: Subset GSVA scores (es_all is pathways x samples)
-mat <- es_all[sig_paths, , drop = FALSE]
-
-# --- Step 3: Z-score per pathway for visualization
-Z <- t(scale(t(mat)))
-Z[is.na(Z)] <- 0
-min(Z)
-min_separators()# --- Step 4: Build sample annotations
-meta_sub <- meta_all[colnames(Z), , drop = FALSE]
-
-ann_cols <- list(
-  Group = c("Control Rejected"= "#1f77b4", "Rejected" = "#d62728"),
-  Day   = c(Day7 = "#66c2a5", Day14 = "#fc8d62")
-)
-top_anno <- HeatmapAnnotation(
-  Group = meta_sub$Group,
-  Day   = meta_sub$Day,
-  col   = ann_cols
+# Add module scores
+IsletScRNA_allo <- AddModuleScore(
+  object = IsletScRNA_allo,
+  features = list(up_use),
+  name = "RejectionScore",
+  assay = DefaultAssay(IsletScRNA_allo)
 )
 
-# --- Step 5: Heatmap
-col_fun <- colorRamp2(c(min(Z), 0,max(Z)), c("#2b6cb0", "white", "#b91c1c"))
+IsletScRNA_allo <- AddModuleScore(
+  object = IsletScRNA_allo,
+  features = list(down_use),
+  name = "AcceptanceScore",
+  assay = DefaultAssay(IsletScRNA_allo)
+)
 
-ht <- Heatmap(
-  Z, name = "GSVA Z-score",
-  col = col_fun,
-  top_annotation = top_anno,
-  show_row_names = TRUE,
-  show_column_names = FALSE,
-  row_names_gp = gpar(fontsize = 8),
-  cluster_rows = TRUE,
-  cluster_columns = TRUE,
-  column_split = meta_sub$Group,   # split by Group for clarity
-  heatmap_legend_param = list(
-    title = "GSVA Z-score"
+
+
+plot_df <- IsletScRNA_allo@meta.data %>%
+  dplyr::select(celltype, RejectionScore1, AcceptanceScore1) %>%
+  filter(!is.na(celltype)) %>%
+  pivot_longer(
+    cols = c(RejectionScore1, AcceptanceScore1),
+    names_to = "signature",
+    values_to = "score"
   )
-)
+
+stat_df <- plot_df %>%
+  group_by(celltype) %>%
+  summarise(
+    p_value = tryCatch(
+      wilcox.test(score ~ signature)$p.value,
+      error = function(e) NA_real_
+    ),
+    y_pos = max(score, na.rm = TRUE) + 0.08 * diff(range(plot_df$score, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    p_adj = p.adjust(p_value, method = "BH"),
+    label = paste0(signif(p_adj, 3))
+  )
 
 
-draw(
-  ht,
-  heatmap_legend_side = "left",
-  annotation_legend_side = "left",
-  padding = unit(c(5, 20, 5, 70), "mm")  # top, right, bottom, left
-)
 
-# 6. Allo Tolerance Vs Syngeneic-----
+ggplot(plot_df, aes(x = celltype, y = score, fill = signature)) +
+  geom_violin(
+    scale = "width",
+    trim = TRUE,
+    alpha = 0.7,
+    position = position_dodge(width = 0.8)
+  ) +
+  geom_boxplot(
+    width = 0.15,
+    outlier.shape = NA,
+    position = position_dodge(width = 0.8)
+  ) +
+  geom_text(
+    data = stat_df,
+    aes(x = celltype, y = y_pos, label = label),
+    inherit.aes = FALSE,
+    size = 4
+  ) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = NULL,
+    y = "Module Score",
+    title = "Distribution of Up- and Down-Signature Scores Across Cell Types"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.title = element_blank()
+  )+scale_fill_manual(
+    values = c(
+      "RejectionScore1" = "#064273",
+      "AcceptanceScore1" = "#F28500"
+    ),
+    labels = c(
+      "RejectionScore1" = "Rejection Score",
+      "AcceptanceScore1" = "Acceptance Score"
+    )
+  )
 
-library(biomaRt)
 
-mart <- useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+# 6. Allo Acceptance Vs Syngeneic-----
 
-gene_info <- getBM(
-  attributes = c("ensembl_gene_id", "start_position", "end_position"),
-  mart = mart
-)
 
-gene_info$gene_length <- gene_info$end_position - gene_info$start_position
-
-sel <- colData(dds_IsletTransplant)$Group %in% c("Control Accepted","Tolerance")  & colData(dds_IsletTransplant)$Day %in% c(7,14,28,42,56,70)
+sel <- colData(dds_IsletTransplant)$Group %in% c("Control Syngeneic","Acceptance")  & colData(dds_IsletTransplant)$Day %in% c(7,14,28,42,56,70)
 #IS- Immunosuppressed
-dds_IsletTransplant_TolVsSyn <- dds_IsletTransplant[, sel]
+dds_IsletTransplant_AccepVsSyn <- dds_IsletTransplant[, sel]
 
-dds_IsletTransplant_TolVsSyn$Batch       <- factor(dds_IsletTransplant_TolVsSyn$Batch)
-dds_IsletTransplant_TolVsSyn$LibraryPrep <- factor(dds_IsletTransplant_TolVsSyn$LibraryPrep)
-dds_IsletTransplant_TolVsSyn$Group <- factor(
-  dds_IsletTransplant_TolVsSyn$Group,
-  levels = c("Control Accepted", "Tolerance")  # order sets baseline
+dds_IsletTransplant_AccepVsSyn$Batch       <- factor(dds_IsletTransplant_AccepVsSyn$Batch)
+dds_IsletTransplant_AccepVsSyn$LibraryPrep <- factor(dds_IsletTransplant_AccepVsSyn$LibraryPrep)
+dds_IsletTransplant_AccepVsSyn$Group <- factor(
+  dds_IsletTransplant_AccepVsSyn$Group,
+  levels = c("Control Syngeneic", "Acceptance")  # order sets baseline
 )
-levels(dds_IsletTransplant_TolVsSyn$Group)
+levels(dds_IsletTransplant_AccepVsSyn$Group)
 
-dds_IsletTransplant_TolVsSyn$Day <- factor(dds_IsletTransplant_TolVsSyn$Day,
+dds_IsletTransplant_AccepVsSyn$Day <- factor(dds_IsletTransplant_AccepVsSyn$Day,
                                                   levels = c(7, 14, 28, 42, 56, 70))  # baseline = 7
-levels(dds_IsletTransplant_TolVsSyn$Day)
+levels(dds_IsletTransplant_AccepVsSyn$Day)
 
-cd <- as.data.frame(colData(dds_IsletTransplant_TolVsSyn))
+cd <- as.data.frame(colData(dds_IsletTransplant_AccepVsSyn))
 mm <- model.matrix(~ Batch + LibraryPrep + Day + Group, data = cd)
 qr_mm <- qr(mm)
-
 kept    <- colnames(mm)[qr_mm$pivot[seq_len(qr_mm$rank)]]
 dropped <- if (qr_mm$rank < ncol(mm)) colnames(mm)[qr_mm$pivot[(qr_mm$rank+1):ncol(mm)]] else character()
 
 kept
 dropped
+table(cd$Group,cd$Day)# Check the minimum number of samples in a group
 
+keep <- rowSums(counts(dds_IsletTransplant_AccepVsSyn) >= 10) >= 4  # Smallest number in Syngeneic group
+dds_IsletTransplant_AccepVsSyn <- dds_IsletTransplant_AccepVsSyn[keep, ]
+boxplot(logIEQ ~ Group, data = colData(dds_IsletTransplant_AccepVsSyn)) #Signficantly different between groups
 
-summary(res_TOLvSYN)
 
 ## DESeq-Combined Timepoints----
 #Design Formula
-design(dds_IsletTransplant_TolVsSyn) <- ~ Batch + Day + Group 
-dds_IsletTransplant_TolVsSyn <- DESeq(dds_IsletTransplant_TolVsSyn)
-design(dds_IsletTransplant_TolVsSyn)
-resultsNames(dds_IsletTransplant_TolVsSyn)
-
+design(dds_IsletTransplant_AccepVsSyn) <- ~ Batch + Day + Group 
+dds_IsletTransplant_AccepVsSyn <- DESeq(dds_IsletTransplant_AccepVsSyn)
+design(dds_IsletTransplant_AccepVsSyn)
+resultsNames(dds_IsletTransplant_AccepVsSyn)
+summary(dds_IsletTransplant_AccepVsSyn)
 # All day combined
-res_TOLvSYN <- results(dds_IsletTransplant_TolVsSyn,
-                       name = "Group_Tolerance_vs_Control.Accepted")
-
-
-
-library(EnhancedVolcano)
+res_ACCEPvSYN <- results(dds_IsletTransplant_AccepVsSyn,
+                       name = "Group_Acceptance_vs_Control.Syngeneic")
 
 # Thresholds
 q_cut  <- 0.10
 fc_cut <- 1
 
-library(EnhancedVolcano)
 
 ## 0) Prep results as data.frames with a 'gene' column
-ALL_TOLVSSYN  <- as.data.frame(res_TOLvSYN);  ALL_TOLVSSYN$gene  <- rownames(res_TOLvSYN)
+ALL_ACCEPVSSYN  <- as.data.frame(res_ACCEPvSYN);  ALL_ACCEPVSSYN$gene  <- rownames(res_ACCEPvSYN)
 
-write.csv(ALL_TOLVSSYN, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/DESEQResults_Days_Combined_Tolerance_vs_Syngeneic.csv", row.names = TRUE)
+write.csv(ALL_ACCEPVSSYN, "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/AcceptanceVsSyngeneic/DESEQResults__AccepVsSyn_DaysCombined.csv", row.names = TRUE)
 
 # Function to create color mapping
-make_keyvals_fdr_fc_TolvsSyn <- function(df, q = 0.10, fc = 1,
+make_keyvals_fdr_fc_AccepvsSyn <- function(df, q = 0.10, fc = 1,
                                            col_up = "#D62728", col_down = "#1F77B4", col_ns = "gray70") {
   # valid stats (for coloring); everything else becomes NS
   ok   <- !is.na(df$padj) & !is.na(df$log2FoldChange)
@@ -2421,29 +1894,58 @@ make_keyvals_fdr_fc_TolvsSyn <- function(df, q = 0.10, fc = 1,
   key
 }
 
-keyvals_ALL  <- make_keyvals_fdr_fc_TolvsSyn(ALL_TOLVSSYN)
+keyvals_ALL  <- make_keyvals_fdr_fc_AccepvsSyn(ALL_ACCEPVSSYN)
 
-library(dplyr)
+#selLab_ALL_ACCEPVSSYN  <- pick_labels(ALL_ACCEPVSSYN,  q_cut, fc_cut, 30)
 
-selLab_ALL_TOLVSSYN  <- pick_labels(ALL_TOLVSSYN,  q_cut, fc_cut, 50)
-
-
+selLab_ALL_ACCEPVSSYN <- c(
+  #Up
+  "S100a8",
+  "S100a9",
+  "Mmp8",
+  "Lcn2",
+  "Cxcr2",
+  "Cxcl1",
+  "Cxcl2",
+  "Cxcl3",
+  "Csf3r",
+  "Fpr1",
+  "Fpr2",
+  "Trem1",
+  "Cd14",
+  "Il1b",
+  "Tnf",
+  "Sell",
+  "Mcemp1",
+  "Slfn4",
+  "Slpi",
+  "Wfdc21",
+  #DOwn
+  "Ackr2",
+  "Alox15",
+  "Gpx2",
+  "Gsta4",
+  "Il24",
+  "Ptgis",
+  "Susd4",
+  "Vnn1"
+)
 ## 3) Axis limits
-xmax_ALL  <- max(2, ceiling(max(abs(ALL_TOLVSSYN$log2FoldChange),  na.rm=TRUE)))
+xmax_ALL  <- max(2, ceiling(max(abs(ALL_ACCEPVSSYN$log2FoldChange),  na.rm=TRUE)))
 
 EnhancedVolcano(
-  ALL_TOLVSSYN,
-  lab           = ALL_TOLVSSYN$gene,
+  ALL_ACCEPVSSYN,
+  lab           = ALL_ACCEPVSSYN$gene,
   x             = "log2FoldChange",
   y             = "padj",
   pCutoff       = 0.10,          # FDR threshold
   FCcutoff      = 1,
   xlab          = expression("log"[2]*"(Fold Change)"),
   ylab          = expression("-log"[10]*"(FDR)"),
-  title         = "Tolerance vs Syngeneic — Combined Timepoints",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(ALL_TOLVSSYN$padj<0.10 & abs(ALL_TOLVSSYN$log2FoldChange)>=1, na.rm=TRUE), ")"),
-  xlim          = c(-xmax_ALL, xmax_ALL),
-  #ylim = c(0,10),
+  title         = "Allogeneic Acceptance vs Syngeneic",
+  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(ALL_ACCEPVSSYN$padj<0.10 & abs(ALL_ACCEPVSSYN$log2FoldChange)>=1, na.rm=TRUE), ")"),
+  xlim          = c(-8, 8),
+  ylim = c(0,20),
   boxedLabels   = TRUE,
   pointSize     = 3,
   labSize       = 6,
@@ -2452,276 +1954,916 @@ EnhancedVolcano(
   max.overlaps = 50,
   colCustom     = keyvals_ALL,
   legendPosition= "right",
-  selectLab     = selLab_ALL_TOLVSSYN
+  selectLab     = selLab_ALL_ACCEPVSSYN
 )
 
-summary(res_TOLvSYN)
+summary(ALL_ACCEPVSSYN)
 
-## DESeq-Individual Timepoints----
-#Design Formula
-design(dds_IsletTransplant_TolVsSyn) <- ~ Batch + Day + Group + Day:Group
-dds_IsletTransplant_TolVsSyn <- DESeq(dds_IsletTransplant_TolVsSyn)
-design(dds_IsletTransplant_TolVsSyn)
-resultsNames(dds_IsletTransplant_TolVsSyn)
+## Heatmap and PCA-DE Genes----
 
-# All day combined
-res_TOLvSYN_d7 <- results(dds_IsletTransplant_TolVsSyn,
-                       name = "Group_Tolerance_vs_Control.Accepted")
-# Other days: main group effect + interaction term for that day
-res_TOLvSYN_d14 <- results(dds_IsletTransplant_TolVsSyn, contrast = list(c("Group_Tolerance_vs_Control.Accepted","Day14.GroupTolerance")))
-res_TOLvSYN_d28 <- results(dds_IsletTransplant_TolVsSyn, contrast = list(c("Group_Tolerance_vs_Control.Accepted","Day28.GroupTolerance")))
-res_TOLvSYN_d42 <- results(dds_IsletTransplant_TolVsSyn, contrast = list(c("Group_Tolerance_vs_Control.Accepted","Day42.GroupTolerance")))
-res_TOLvSYN_d56 <- results(dds_IsletTransplant_TolVsSyn, contrast = list(c("Group_Tolerance_vs_Control.Accepted","Day56.GroupTolerance")))
-res_TOLvSYN_d70 <- results(dds_IsletTransplant_TolVsSyn, contrast = list(c("Group_Tolerance_vs_Control.Accepted","Day70.GroupTolerance")))
+sig_genes_ACCEPvSYN <- ALL_ACCEPVSSYN$gene[
+  !is.na(ALL_ACCEPVSSYN$padj) &
+    ALL_ACCEPVSSYN$padj <= 0.05 &
+    abs(ALL_ACCEPVSSYN$log2FoldChange) >= 1
+]
 
-## 0) Prep results as data.frames with a 'gene' column
-d7_TOLVSYN  <- as.data.frame(res_TOLvSYN_d7);  d7_TOLVSYN$gene  <- rownames(res_TOLvSYN_d7)
-d14_TOLVSYN <- as.data.frame(res_TOLvSYN_d14); d14_TOLVSYN$gene <- rownames(res_TOLvSYN_d14)
-d28_TOLVSYN <- as.data.frame(res_TOLvSYN_d28); d28_TOLVSYN$gene <- rownames(res_TOLvSYN_d28)
-d42_TOLVSYN <- as.data.frame(res_TOLvSYN_d42); d42_TOLVSYN$gene <- rownames(res_TOLvSYN_d42)
-d56_TOLVSYN <- as.data.frame(res_TOLvSYN_d56); d56_TOLVSYN$gene <- rownames(res_TOLvSYN_d56)
-d70_TOLVSYN <- as.data.frame(res_TOLvSYN_d70); d70_TOLVSYN$gene <- rownames(res_TOLvSYN_d70)
-
-write.csv(d7_TOLVSYN, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/DESEQResults_Day7_ToleranceVsSyngeneic.csv", row.names = TRUE)
-write.csv(d14_TOLVSYN, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/DESEQResults_Day14_ToleranceVsSyngeneic.csv", row.names = TRUE)
-write.csv(d28_TOLVSYN, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/DESEQResults_Day28_ToleranceVsSyngeneic.csv", row.names = TRUE)
-write.csv(d42_TOLVSYN, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/DESEQResults_Day42_ToleranceVsSyngeneic.csv", row.names = TRUE)
-write.csv(d56_TOLVSYN, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/DESEQResults_Day56_ToleranceVsSyngeneic.csv", row.names = TRUE)
-write.csv(d70_TOLVSYN, "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/DESEQResults_Day70_ToleranceVsSyngeneic.csv", row.names = TRUE)
+length(sig_genes_ACCEPvSYN)
 
 
-keyvals_d7  <- make_keyvals_fdr_fc_TolvsSyn(d7_TOLVSYN)
-keyvals_d14 <- make_keyvals_fdr_fc_TolvsSyn(d14_TOLVSYN)
-keyvals_d28 <- make_keyvals_fdr_fc_TolvsSyn(d28_TOLVSYN)
-keyvals_d42 <- make_keyvals_fdr_fc_TolvsSyn(d42_TOLVSYN)
-keyvals_d56 <- make_keyvals_fdr_fc_TolvsSyn(d56_TOLVSYN)
-keyvals_d70 <- make_keyvals_fdr_fc_TolvsSyn(d70_TOLVSYN)
-
-library(dplyr)
-pick_labels <- function(df, q = 0.10, fc = 1, topN = 30) {
-  idx <- which(!is.na(df$padj) & !is.na(df$log2FoldChange) &
-                 df$padj < q & abs(df$log2FoldChange) >= fc)
-  if (length(idx) == 0) return(character(0))
-  ord <- order(df$padj[idx], -abs(df$log2FoldChange[idx]), na.last = NA)  # tie-break by |LFC|
-  labs <- df$gene[idx][ord]
-  labs <- make.unique(labs)  # avoid dup labels
-  labs[seq_len(min(topN, length(labs)))]
-}
-
-selLab_d7_TOLVSSYN  <- pick_labels(d7_TOLVSYN,  q_cut, fc_cut, 40)
-selLab_d14_TOLVSSYN <- pick_labels(d14_TOLVSYN, q_cut, fc_cut, 40)
-selLab_d28_TOLVSSYN <- pick_labels(d28_TOLVSYN, q_cut, fc_cut, 40)
-selLab_d42_TOLVSSYN <- pick_labels(d42_TOLVSYN, q_cut, fc_cut, 40)
-selLab_d56_TOLVSSYN <- pick_labels(d56_TOLVSYN, q_cut, fc_cut, 40)
-selLab_d70_TOLVSSYN <- pick_labels(d70_TOLVSYN, q_cut, fc_cut, 40)
-
-
-## 3) Axis limits
-xmax_d7  <- max(2, ceiling(max(abs(d7_TOLVSYN$log2FoldChange),  na.rm=TRUE)))
-xmax_d14 <- max(2, ceiling(max(abs(d14_TOLVSYN$log2FoldChange), na.rm=TRUE)))
-xmax_d28 <- max(2, ceiling(max(abs(d28_TOLVSYN$log2FoldChange), na.rm=TRUE)))
-xmax_d42 <- max(2, ceiling(max(abs(d42_TOLVSYN$log2FoldChange), na.rm=TRUE)))
-xmax_d56 <- max(2, ceiling(max(abs(d56_TOLVSYN$log2FoldChange), na.rm=TRUE)))
-xmax_d70 <- max(2, ceiling(max(abs(d70_TOLVSYN$log2FoldChange), na.rm=TRUE)))
-
-
-## Volcano: Day 7----
-EnhancedVolcano(
-  d7_TOLVSYN,
-  lab           = d7_TOLVSYN$gene,
-  x             = "log2FoldChange",
-  y             = "padj",
-  pCutoff       = 0.10,          # FDR threshold
-  FCcutoff      = 1,
-  xlab          = expression("log"[2]*"(Fold Change)"),
-  ylab          = expression("-log"[10]*"(FDR)"),
-  title         = "Tolerance vs Syngeneic — Day 7",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(d7_TOLVSYN$padj<0.10 & abs(d7_TOLVSYN$log2FoldChange)>=1, na.rm=TRUE), ")"),
-  xlim          = c(-xmax_d7, xmax_d7),
-  ylim = c(0,14),
-  boxedLabels   = TRUE,
-  pointSize     = 3,
-  labSize       = 6,
-  colAlpha      = 0.8,
-  drawConnectors= TRUE,
-  max.overlaps = 35,
-  colCustom     = keyvals_d7,
-  legendPosition= "right",
-  selectLab     = selLab_d7_TOLVSSYN
-)
-
-## Volcano: Day 14----
-EnhancedVolcano(
-  d14_TOLVSYN,
-  lab           = d14_TOLVSYN$gene,
-  x             = "log2FoldChange",
-  y             = "padj",
-  pCutoff       = 0.10,          # FDR threshold
-  FCcutoff      = 1,
-  xlab          = expression("log"[2]*"(Fold Change)"),
-  ylab          = expression("-log"[10]*"(FDR)"),
-  title         = "Tolerance vs Syngeneic — Day 14",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(d14_TOLVSYN$padj<0.10 & abs(d14_TOLVSYN$log2FoldChange)>=1, na.rm=TRUE), ")"),
-  xlim          = c(-xmax_d14, xmax_d14),
-  ylim = c(0,13),
-  boxedLabels   = TRUE,
-  pointSize     = 3,
-  labSize       = 6,
-  colAlpha      = 0.8,
-  drawConnectors= TRUE,
-  max.overlaps = 35,
-  colCustom     = keyvals_d14,
-  legendPosition= "right",
-  selectLab     = selLab_d14_TOLVSSYN
+vsd <- vst(dds_IsletTransplant_AccepVsSyn, blind = FALSE)
+mat <- assay(vsd)
+cd <- as.data.frame(colData(dds_IsletTransplant_AccepVsSyn))
+design_heatmap <- model.matrix(~ Group, data = cd)
+mat_bc <- limma::removeBatchEffect(
+  mat,
+  batch = vsd$Batch,
+  covariates = model.matrix(~ Day, data = cd)[, -1, drop = FALSE],
+  design = design_heatmap
 )
 
 
-## Volcano: Day 28----
-EnhancedVolcano(
-  d28_TOLVSYN,
-  lab           = d28_TOLVSYN$gene,
-  x             = "log2FoldChange",
-  y             = "padj",
-  pCutoff       = 0.10,          # FDR threshold
-  FCcutoff      = 1,
-  xlab          = expression("log"[2]*"(Fold Change)"),
-  ylab          = expression("-log"[10]*"(FDR)"),
-  title         = "Tolerance vs Syngeneic — Day 28",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(d28_TOLVSYN$padj<0.10 & abs(d28_TOLVSYN$log2FoldChange)>=1, na.rm=TRUE), ")"),
-  xlim          = c(-xmax_d28, xmax_d28),
-  #ylim = c(0,6),
-  boxedLabels   = TRUE,
-  pointSize     = 3,
-  labSize       = 6,
-  colAlpha      = 0.8,
-  drawConnectors= TRUE,
-  max.overlaps = 35,
-  colCustom     = keyvals_d28,
-  legendPosition= "right",
-  selectLab     = selLab_d28_TOLVSSYN
-)
+anno_col <- colData(dds_IsletTransplant_AccepVsSyn)[, c( "Group","Day")] |> 
+  as.data.frame()
 
 
-## Volcano: Day 42----
-EnhancedVolcano(
-  d42_TOLVSYN,
-  lab           = d42_TOLVSYN$gene,
-  x             = "log2FoldChange",
-  y             = "padj",
-  pCutoff       = 0.10,          # FDR threshold
-  FCcutoff      = 1,
-  xlab          = expression("log"[2]*"(Fold Change)"),
-  ylab          = expression("-log"[10]*"(FDR)"),
-  title         = "Tolerance vs Syngeneic — Day 42",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(d42_TOLVSYN$padj<0.10 & abs(d42_TOLVSYN$log2FoldChange)>=1, na.rm=TRUE), ")"),
-  xlim          = c(-xmax_d42, xmax_d42),
-  ylim = c(0,15),
-  boxedLabels   = TRUE,
-  pointSize     = 3,
-  labSize       = 6,
-  colAlpha      = 0.8,
-  drawConnectors= TRUE,
-  max.overlaps = 35,
-  colCustom     = keyvals_d42,
-  legendPosition= "right",
-  selectLab     = selLab_d42_TOLVSSYN
+annotation_colors <- list(
+  Group = c(
+    "Acceptance" = "#064273" ,   # Ocean
+    "Control Syngeneic" = "#2E6F40"     # Moss green
+  ),
+  Day = c(
+    "7" = "#F28E6B",
+    "14" = "#6FA287",
+    "28" = "#E9C46A",  # soft muted gold (transition from early)
+    "42" = "#F4A261",  # warm amber (still mid-stage)
+    "56" = "#7B8CDE",  # muted periwinkle (shift to late)
+    "70" = "#4C5D8B"   # deep slate blue (late stage)
+  )
 )
 
-## Volcano: Day 56----
-EnhancedVolcano(
-  d56_TOLVSYN,
-  lab           = d56_TOLVSYN$gene,
-  x             = "log2FoldChange",
-  y             = "padj",
-  pCutoff       = 0.10,          # FDR threshold
-  FCcutoff      = 1,
-  xlab          = expression("log"[2]*"(Fold Change)"),
-  ylab          = expression("-log"[10]*"(FDR)"),
-  title         = "Tolerance vs Syngeneic — Day 56",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(d56_TOLVSYN$padj<0.10 & abs(d56_TOLVSYN$log2FoldChange)>=1, na.rm=TRUE), ")"),
-  xlim          = c(-xmax_d56, xmax_d56),
-  #ylim = c(0,6),
-  boxedLabels   = TRUE,
-  pointSize     = 3,
-  labSize       = 6,
-  colAlpha      = 0.8,
-  drawConnectors= TRUE,
-  max.overlaps = 35,
-  colCustom     = keyvals_d56,
-  legendPosition= "right",
-  selectLab     = selLab_d56_TOLVSSYN
+mat_bc_AccepVsSyn <- mat_bc[sig_genes_ACCEPvSYN,]
+# row-scale genes
+mat_bc_AccepVsSyn_scaled <- t(scale(t(mat_bc_AccepVsSyn)))
+# remove genes with zero variance if any
+mat_bc_AccepVsSyn_scaled <- mat_bc_AccepVsSyn_scaled[complete.cases(mat_bc_AccepVsSyn_scaled), , drop = FALSE]
+
+samples_AccepVsSyn<-colnames(dds_IsletTransplant_AccepVsSyn)
+# annotation
+anno_col <- anno_col[samples_AccepVsSyn, , drop = FALSE]
+
+immune_genes_plot <- c(
+  "Acod1",
+  "Arg1",
+  "Arg2",
+  "Art2b",
+  "Bst1",
+  "Ccl3",
+  "Ccl4",
+  "Cd14",
+  "Cd274",
+  "Cd300lf",
+  "Cd38",
+  "Clec4e",
+  "Csf2",
+  "Csf3",
+  "Csf3r",
+  "Cxcl1",
+  "Cxcl2",
+  "Cxcl3",
+  "Cxcr2",
+  "Flicr",
+  "Fpr1",
+  "Fpr2",
+  "Gbp5",
+  "Gpr15",
+  "Gpr84",
+  "Hcar2",
+  "Hp",
+  "Ier3",
+  "Ifitm1",
+  "Il12a",
+  "Il17a",
+  "Il17f",
+  "Il1a",
+  "Il1b",
+  "Il18rap",
+  "Il22",
+  "Il23a",
+  "Kcna3",
+  "Lcn2",
+  "Lef1",
+  "Ly6c2",
+  "Marco",
+  "Mcemp1",
+  "Mmp8",
+  "Nlrp3",
+  "Nos2",
+  "Prok2",
+  "Slamf6",
+  "Themis",
+  "Tnf",
+  "Tox",
+  "Trem1"
 )
 
-## Volcano: Day 70----
-EnhancedVolcano(
-  d70_TOLVSYN,
-  lab           = d70_TOLVSYN$gene,
-  x             = "log2FoldChange",
-  y             = "padj",
-  pCutoff       = 0.10,          # FDR threshold
-  FCcutoff      = 1,
-  xlab          = expression("log"[2]*"(Fold Change)"),
-  ylab          = expression("-log"[10]*"(FDR)"),
-  title         = "Tolerance vs Syngeneic — Day 70",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(d70_TOLVSYN$padj<0.10 & abs(d70_TOLVSYN$log2FoldChange)>=1, na.rm=TRUE), ")"),
-  xlim          = c(-xmax_d70, xmax_d70),
-  #ylim = c(0,6),
-  boxedLabels   = TRUE,
-  pointSize     = 3,
-  labSize       = 6,
-  colAlpha      = 0.8,
-  drawConnectors= TRUE,
-  max.overlaps = 35,
-  colCustom     = keyvals_d70,
-  legendPosition= "right",
-  selectLab     = selLab_d70_TOLVSSYN
+at_idx <- which(rownames(mat_bc_AccepVsSyn_scaled) %in% immune_genes_plot)
+lab <- rownames(mat_bc_AccepVsSyn_scaled)[at_idx]
+
+ha_col <- HeatmapAnnotation(
+  df = anno_col,
+  col = annotation_colors
 )
+ra <- rowAnnotation(
+  mark = anno_mark(
+    at = at_idx,
+    labels = lab,
+    side = "right",
+    labels_gp = gpar(fontsize = 10, fontface = "italic"),
+    link_width = unit(8, "mm"),
+    link_height = unit(2, "mm")
+  )
+)
+col_fun <- colorRamp2(
+  seq(-2, 2, length.out = 100),
+  colorRampPalette(c("navy", "white", "firebrick3"))(100)
+)
+
+ht <- Heatmap(
+  mat_bc_AccepVsSyn_scaled,
+  name = "Z-score",
+  top_annotation = ha_col,
+  right_annotation = ra,
+  col = col_fun,
+  cluster_rows = TRUE,
+  cluster_columns = TRUE,
+  show_row_names = FALSE,
+  show_column_names = FALSE,
+  column_title = paste0(
+    "Allogeneic Acceptance vs Syngeneic (n = ",
+    nrow(mat_bc_AccepVsSyn_scaled), ")"
+  ),
+  heatmap_legend_param = list(
+    title = "Expression",
+    legend_direction = "vertical"
+  )
+)
+
+pdf("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/AcceptanceVsSyngeneic/Figures/SigDE_AccepVsSyn_Heatmap.pdf", width = 7, height = 9)
+
+draw(
+  ht,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right"
+)
+
+dev.off()
+
+#PCA Analysis
+mat_pca <- t(mat_bc_AccepVsSyn)
+pca <- prcomp(mat_pca, scale. = TRUE)
+pca_df <- data.frame(
+  PC1 = pca$x[,1],
+  PC2 = pca$x[,2],
+  Group = cd$Group
+)
+
+# Define colors & shapes
+group_colors <- c("Control Syngeneic" = "#2E6F40", "Acceptance" = "#064273" )
+group_shapes <- c("Control Syngeneic" = 24, "Acceptance" = 16)
+
+ggplot(pca_df, aes(PC1, PC2, color = Group,, shape = Group)) +
+  geom_point(aes(fill = Group), size = 5, stroke = 1.2) +
+  stat_ellipse(geom = "polygon", alpha = 0.2, aes(fill = Group), show.legend = FALSE, level = 0.7) +
+  scale_color_manual(values = group_colors) +
+  scale_fill_manual(values = group_colors) +
+  scale_shape_manual(values = group_shapes) +
+  theme_classic(base_size = 18) +
+  labs(
+    title = "PCA of DE Genes: Allo Acceptance vs Syn",
+    x = paste0("PC1 (", round(100 * summary(pca)$importance[2,1],1), "%)"),
+    y = paste0("PC2 (", round(100 * summary(pca)$importance[2,2],1), "%)")
+  ) +
+  theme(
+    legend.position = "top",
+    axis.title = element_text(size = 20, face = "bold"),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 1),
+    panel.grid = element_blank()
+  )
+
+
+
 
 
 ## GSEA Analysis----
 # Paths to your saved results
-d7_path_TolVsSyn  <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/DESEQResults_Day7_ToleranceVsSyngeneic.csv"
-d14_path_TolVsSyn <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/DESEQResults_Day14_ToleranceVsSyngeneic.csv"
-d28_path_TolVsSyn <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/DESEQResults_Day28_ToleranceVsSyngeneic.csv"
-d42_path_TolVsSyn <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/DESEQResults_Day42_ToleranceVsSyngeneic.csv"
-d56_path_TolVsSyn <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/DESEQResults_Day56_ToleranceVsSyngeneic.csv"
-d70_path_TolVsSyn <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/DESEQResults_Day70_ToleranceVsSyngeneic.csv"
-
+ALL_ACCEPVSSYN_path  <-  "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/AcceptanceVsSyngeneic/DESEQResults__AccepVsSyn_DaysCombined.csv"
 
 # Import
-d7_TolVsSyn  <- read.csv(d7_path_TolVsSyn,  row.names = 1)
-d14_TolVsSyn <- read.csv(d14_path_TolVsSyn, row.names = 1)
-d28_TolVsSyn <- read.csv(d28_path_TolVsSyn, row.names = 1)
-d42_TolVsSyn <- read.csv(d42_path_TolVsSyn, row.names = 1)
-d56_TolVsSyn <- read.csv(d56_path_TolVsSyn, row.names = 1)
-d70_TolVsSyn <- read.csv(d70_path_TolVsSyn, row.names = 1)
+ALL_ACCEPVSSYN  <- read.csv(ALL_ACCEPVSSYN_path,  row.names = 1)
 
 # Build ranked gene lists using DESeq2 Wald stat
-lfc_vector_d7_TolVsSyn   <- d7_TolVsSyn$stat;  names(lfc_vector_d7_TolVsSyn )  <- rownames(d7_TolVsSyn)
-lfc_vector_d14_TolVsSyn  <- d14_TolVsSyn$stat; names(lfc_vector_d14_TolVsSyn ) <- rownames(d14_TolVsSyn)
-lfc_vector_d28_TolVsSyn  <- d28_TolVsSyn$stat; names(lfc_vector_d28_TolVsSyn ) <- rownames(d28_TolVsSyn)
-lfc_vector_d42_TolVsSyn  <- d42_TolVsSyn$stat; names(lfc_vector_d42_TolVsSyn ) <- rownames(d42_TolVsSyn)
-lfc_vector_d56_TolVsSyn  <- d56_TolVsSyn$stat; names(lfc_vector_d56_TolVsSyn ) <- rownames(d56_TolVsSyn)
-lfc_vector_d70_TolVsSyn  <- d70_TolVsSyn$stat; names(lfc_vector_d70_TolVsSyn ) <- rownames(d70_TolVsSyn)
+lfc_vector_ALL_ACCEPVSSYN  <- ALL_ACCEPVSSYN$stat;  names(lfc_vector_ALL_ACCEPVSSYN)  <- rownames(ALL_ACCEPVSSYN)
+
 
 # Drop NAs
-lfc_vector_d7_TolVsSyn  <- lfc_vector_d7_TolVsSyn[!is.na(lfc_vector_d7_TolVsSyn)]
-lfc_vector_d14_TolVsSyn <- lfc_vector_d14_TolVsSyn[!is.na(lfc_vector_d14_TolVsSyn)]
-lfc_vector_d28_TolVsSyn <- lfc_vector_d28_TolVsSyn[!is.na(lfc_vector_d28_TolVsSyn)]
-lfc_vector_d42_TolVsSyn <- lfc_vector_d42_TolVsSyn[!is.na(lfc_vector_d42_TolVsSyn)]
-lfc_vector_d56_TolVsSyn <- lfc_vector_d56_TolVsSyn[!is.na(lfc_vector_d56_TolVsSyn)]
-lfc_vector_d70_TolVsSyn <- lfc_vector_d70_TolVsSyn[!is.na(lfc_vector_d70_TolVsSyn)]
+lfc_vector_ALL_ACCEPVSSYN  <- lfc_vector_ALL_ACCEPVSSYN[!is.na(lfc_vector_ALL_ACCEPVSSYN)]
 
 # Sort decreasing (required by clusterProfiler::GSEA)
-lfc_vector_d7_TolVsSyn  <- sort(lfc_vector_d7_TolVsSyn,  decreasing = TRUE)
-lfc_vector_d14_TolVsSyn <- sort(lfc_vector_d14_TolVsSyn, decreasing = TRUE)
-lfc_vector_d28_TolVsSyn <- sort(lfc_vector_d28_TolVsSyn, decreasing = TRUE)
-lfc_vector_d42_TolVsSyn <- sort(lfc_vector_d42_TolVsSyn, decreasing = TRUE)
-lfc_vector_d56_TolVsSyn <- sort(lfc_vector_d56_TolVsSyn, decreasing = TRUE)
-lfc_vector_d70_TolVsSyn <- sort(lfc_vector_d70_TolVsSyn, decreasing = TRUE)
+lfc_vector_ALL_ACCEPVSSYN  <- sort(lfc_vector_ALL_ACCEPVSSYN,  decreasing = TRUE)
 
-library(msigdbr)
-library(dplyr)
+gsea_results_ALL_ACCEPVSSYN <- GSEA(
+  geneList      = lfc_vector_ALL_ACCEPVSSYN,
+  minGSSize     = 5,
+  maxGSSize     = 500,
+  pvalueCutoff  = 0.1,
+  eps           = 0,
+  seed          = TRUE,
+  pAdjustMethod = "BH",
+  TERM2GENE     = mm_all_df
+)
+gsea_results_ALL_ACCEPVSSYN <- as.data.frame(gsea_results_ALL_ACCEPVSSYN)
+
+
+# Full results Combined Timepoins
+write.csv(gsea_results_ALL_ACCEPVSSYN,
+          "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/AcceptanceVsSyngeneic/GSEAResults_AccepvsSyn_DaysCombined.csv",
+          row.names = FALSE)
+
+
+immune_master_ACCEPVSSYN <- unique(c(
+  #Upregukated
+  "HAY_BONE_MARROW_NEUTROPHIL",
+  "HAY_BONE_MARROW_IMMATURE_NEUTROPHIL",
+  "TRAVAGLINI_LUNG_CLASSICAL_MONOCYTE_CELL",
+  "SU_HO_CONV_CENT_CHONDROSARCOMA_LEUKOCYTE_C0_M1_MACROPHAGE",
+  "TRAVAGLINI_LUNG_IGSF21_DENDRITIC_CELL",
+  "FAN_OVARY_CL4_T_LYMPHOCYTE_NK_CELL_1",
+  "HALLMARK_INTERFERON_GAMMA_RESPONSE",
+  "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
+  "HALLMARK_IL6_JAK_STAT3_SIGNALING",
+  "HALLMARK_INFLAMMATORY_RESPONSE",
+  "HALLMARK_INTERFERON_ALPHA_RESPONSE",
+  "KEGG_TOLL_LIKE_RECEPTOR_SIGNALING_PATHWAY",
+  "KEGG_NOD_LIKE_RECEPTOR_SIGNALING_PATHWAY",
+  "KEGG_RIG_I_LIKE_RECEPTOR_SIGNALING_PATHWAY",
+  "KEGG_JAK_STAT_SIGNALING_PATHWAY",
+  "KEGG_CHEMOKINE_SIGNALING_PATHWAY",
+  "KEGG_FC_GAMMA_R_MEDIATED_PHAGOCYTOSIS",
+  "KEGG_ANTIGEN_PROCESSING_AND_PRESENTATION",
+  "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
+  "KEGG_T_CELL_RECEPTOR_SIGNALING_PATHWAY",
+  "KEGG_GRAFT_VERSUS_HOST_DISEASE",
+  #Downregulated
+  "TRAVAGLINI_LUNG_CD4_NAIVE_T_CELL",
+  "HALLMARK_KRAS_SIGNALING_DN",
+  "HALLMARK_BILE_ACID_METABOLISM",
+  "KEGG_GLUTATHIONE_METABOLISM",
+  "KEGG_ECM_RECEPTOR_INTERACTION",
+  "HALLMARK_ANGIOGENESIS",
+  "HALLMARK_ANDROGEN_RESPONSE"
+
+  
+))
+
+
+plot_df <- gsea_results_ALL_ACCEPVSSYN %>%
+  filter(ID %in% immune_master_ACCEPVSSYN) %>%
+  mutate(
+    neglog10_padj = -log10(p.adjust),
+    neglog10_padj = ifelse(is.infinite(neglog10_padj), NA, neglog10_padj)
+  ) %>%
+  arrange(NES) %>%
+  mutate(
+    ID = factor(ID, levels = ID)
+  )
+
+
+ggplot(plot_df, aes(x = NES, y = ID, size = neglog10_padj, color = NES)) +
+  geom_point(alpha = 0.9) +
+  scale_size_continuous(name = expression(-log[10](adjusted~italic(p))), range = c(3, 10)) +
+  scale_color_gradient2(
+    low = "#064273",
+    mid = "white",
+    high = "#F28500",
+    midpoint = 0,
+    name = "NES"
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Normalized Enrichment Score (NES)",
+    y = NULL,
+    title = "Allogeneic Acceptance vs Syngeneic"
+  ) +
+  theme(
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+
+## GSVA Scores Over Time----
+
+### Inflammatory Pathway Scores----
+
+# VST normalization
+vsd <- vst(dds_IsletTransplant_AccepVsSyn, blind = FALSE)
+
+mat <- assay(vsd)
+
+# Remove only sequencing batch
+cd <- as.data.frame(colData(dds_IsletTransplant_AccepVsSyn))
+design_gsva <- model.matrix(~ Day + Group + Day:Group, data = cd)
+mat_enet <- limma::removeBatchEffect(
+  mat,
+  batch = vsd$Batch,
+  design = design_gsva
+)
+
+cd$MouseID <- paste(cd$Cohort, cd$Animal, sep = "_")
+
+Inflammatory_Macrophage <- c(
+  "Cd14",
+  "Cd38",
+  "Cd300lf",
+  "Bst1",
+  "Ccl3",
+  "Ccl4",
+  "Gpr84",
+  "Hcar2",
+  "Il1b",
+  "Il1a",
+  "Nos2",
+  "Nlrp3",
+  "Marco",
+  "Ly6c2",
+  "Acod1",
+  "Ptgs2",
+  "Tnf",
+  "Trem1",
+  "Lyz2",
+  "Itgam",
+  "Tyrobp",
+  "Fcer1g",
+  "Fcgr1",
+  "Csf1r",
+  "Ctss",
+  "Clec7a",
+  "Cebpb"
+)
+Inflammatory_Neutrophil  <- c(
+  "Csf3r",
+  "Cxcr2",
+  "S100a8",
+  "S100a9",
+  "Lcn2",
+  "Mmp8",
+  "Trem1",
+  "Fpr1",
+  "Fpr2",
+  "Sell",
+  "Mcemp1",
+  "Prok2",
+  "Slpi",
+  "Il1b",
+  "Ptgs2",
+  "Cxcl1",
+  "Cxcl2",
+  "Cxcl3"
+)
+
+Inflammatory_Tcell <- c(
+  "Cd3d",
+  "Cd3e",
+  "Cd3g",
+  "Cd4",
+  "Themis",
+  "Lef1",
+  "Slamf6",
+  "Tox",
+  "Flicr",
+  "Art2b",
+  "Kcna3",
+  "Gpr15",
+  "Tnfsf14",
+  "Tnfsf18",
+  "Il17a",
+  "Il17f",
+  "Il22",
+  "Csf2",
+  "Rag1"
+)
+
+gene_sets_custom <- list(
+  Inflammatory_Macrophage = Inflammatory_Macrophage,
+  Inflammatory_Neutrophil = Inflammatory_Neutrophil,
+  Inflammatory_Tcell=Inflammatory_Tcell
+)
+
+gene_sets_use <- c(gene_sets_custom, gene_sets_atlas)
+
+gsva_par <- gsvaParam(
+  mat_gsva,
+  gene_sets_use,
+  kcdf    = "Gaussian",   # VST is log-like
+  minSize = 5,
+  maxSize = 500
+)
+gsva_scores <- gsva(gsva_par)  # pathway x sample
+gsva_df <- as.data.frame(t(gsva_scores))
+gsva_df$Sample <- rownames(gsva_df)
+
+gsva_df <- cbind(gsva_df, cd[gsva_df$Sample, ])
+
+pathways_use_way <- c(
+  "Inflammatory_Macrophage",
+  "Inflammatory_Neutrophil",
+  "Inflammatory_Tcell"
+)
+
+gsva_long <- gsva_df %>%
+  pivot_longer(
+    cols = all_of(pathways_use_way),
+    names_to = "Pathway",
+    values_to = "Score"
+  )
+
+
+pvals_df <- gsva_long %>%
+  dplyr::group_by(Pathway, Day) %>%
+  dplyr::summarise(
+    p_value = {
+      df <- dplyr::cur_data()
+      if(length(unique(df$Group)) < 2) {
+        NA_real_
+      } else {
+        tryCatch(
+          t.test(Score ~ Group, data = df, var.equal = FALSE)$p.value,
+          error = function(e) NA_real_
+        )
+      }
+    },
+    .groups = "drop"
+  )
+
+pvals_df <- pvals_df %>%
+  dplyr::mutate(
+    signif_label = dplyr::case_when(
+      is.na(p_value) ~ "",
+      p_value <= 1e-4 ~ "****",
+      p_value <= 1e-3 ~ "***",
+      p_value <= 1e-2 ~ "**",
+      p_value <= 5e-2 ~ "*",
+      TRUE ~ ""
+    )
+  )
+
+gsva_avg <- gsva_long %>%
+  dplyr::group_by(Group, Day, Pathway) %>%
+  dplyr::summarise(
+    mean_score = mean(Score),
+    se = sd(Score) / sqrt(dplyr::n()),
+    .groups = "drop"
+  )
+
+label_pos_df <- gsva_long %>%
+  dplyr::group_by(Pathway, Day) %>%
+  dplyr::summarise(
+    y_pos = max(Score, na.rm = TRUE) + 0.08 * diff(range(Score, na.rm = TRUE)),
+    .groups = "drop"
+  )
+
+label_pos_df <- gsva_long %>%
+  dplyr::group_by(Pathway, Day) %>%
+  dplyr::summarise(
+    ymin = min(Score, na.rm = TRUE),
+    ymax = max(Score, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    span = dplyr::if_else(ymax > ymin, ymax - ymin, 0.2),
+    y_pos = ymax - 0.2 * span
+  ) %>%
+  dplyr::select(Pathway, Day, y_pos)
+
+sig_df <- pvals_df %>%
+  dplyr::left_join(label_pos_df, by = c("Pathway", "Day"))
+
+ggplot(gsva_avg,
+       aes(x = Day,
+           y = mean_score,
+           color = Group,
+           shape = Group,
+           group = Group)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  geom_errorbar(
+    aes(ymin = mean_score - se,
+        ymax = mean_score + se),
+    width = 0.5
+  ) +
+  geom_text(
+    data = sig_df,
+    aes(x = Day, y = y_pos, label = signif_label),
+    inherit.aes = FALSE,
+    size = 7
+  ) +
+  facet_wrap(
+    ~ Pathway,
+    labeller = as_labeller(c(
+      "Inflammatory_Macrophage" = "Inflammatory Macrophage",
+      "Inflammatory_Neutrophil" = "Inflammatory Neutrophil",
+      "Inflammatory_Tcell" = "Inflammatory T Cell"
+    ))
+  ) +
+  coord_cartesian(ylim = c(-0.6, 0.6)) +
+  scale_color_manual(values = c(
+    "Control Syngeneic" = "#2E6F40",
+    "Acceptance" = "#064273"
+  )) +
+  scale_shape_manual(values = c(
+    "Control Syngeneic" = 17,
+    "Acceptance" = 16
+  )) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Days Post Transplant",
+    y = "GSVA score",
+    title = "Immune Inflammatory Genesets"
+  )+
+  theme(
+    strip.text = element_text(size = 12)
+  )
+
+
+### Allo Accep vs Syn Score----
+ALL_ACCEPVSSYN<-read.csv("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/AcceptanceVsSyngeneic/DESEQResults__AccepVsSyn_DaysCombined.csv", row.names = 1)
+
+
+# VST normalization
+vsd <- vst(dds_IsletTransplant_AccepVsSyn, blind = FALSE)
+
+mat <- assay(vsd)
+
+# Remove only sequencing batch
+cd <- as.data.frame(colData(dds_IsletTransplant_AccepVsSyn))
+design_gsva <- model.matrix(~ Day + Group + Day:Group, data = cd)
+mat_enet <- limma::removeBatchEffect(
+  mat,
+  batch = vsd$Batch,
+  design = design_gsva
+)
+up_genes_AccepVsSyn <- ALL_ACCEPVSSYN$gene[
+  !is.na(ALL_ACCEPVSSYN$padj) &
+    ALL_ACCEPVSSYN$padj <= 0.05 &
+    ALL_ACCEPVSSYN$log2FoldChange >= 1
+]
+
+down_genes_AccepVsSyn <- ALL_ACCEPVSSYN$gene[
+  !is.na(ALL_ACCEPVSSYN$padj) &
+    ALL_ACCEPVSSYN$padj <= 0.05 &
+    ALL_ACCEPVSSYN$log2FoldChange <= -1
+]
+
+gsva_par_sig <- gsvaParam(
+  mat_enet,
+  list(
+    Up = up_genes_AccepVsSyn,
+    Down = down_genes_AccepVsSyn
+  ),
+  kcdf = "Gaussian",
+  minSize = 5
+)
+
+sig_scores <- gsva(gsva_par_sig)
+
+signature_df <- data.frame(
+  Sample = colnames(sig_scores),
+  GSVA_Up = as.numeric(sig_scores["Up", ]),
+  GSVA_Down = as.numeric(sig_scores["Down", ])
+)
+
+signature_df$SignatureScore <- signature_df$GSVA_Up - signature_df$GSVA_Down
+signature_df <- cbind(signature_df, cd[signature_df$Sample, ])
+
+score_avg <- signature_df %>%
+  dplyr::group_by(Group, Day) %>%
+  dplyr::summarise(
+    mean_score = mean(SignatureScore, na.rm = TRUE),
+    se = sd(SignatureScore, na.rm = TRUE) / sqrt(dplyr::n()),
+    .groups = "drop"
+  )
+
+pvals_score <- signature_df %>%
+  dplyr::group_by(Day) %>%
+  dplyr::summarise(
+    p_value = {
+      df <- dplyr::cur_data()
+      if (length(unique(df$Group)) < 2) {
+        NA_real_
+      } else {
+        tryCatch(
+          t.test(SignatureScore ~ Group, data = df, var.equal = FALSE)$p.value,
+          error = function(e) NA_real_
+        )
+      }
+    },
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    signif_label = dplyr::case_when(
+      is.na(p_value) ~ "",
+      p_value <= 1e-4 ~ "****",
+      p_value <= 1e-3 ~ "***",
+      p_value <= 1e-2 ~ "**",
+      p_value <= 5e-2 ~ "*",
+      TRUE ~ ""
+    )
+  )
+ 
+label_pos_score <- signature_df %>%
+  dplyr::group_by(Day) %>%
+  dplyr::summarise(
+    ymin = min(SignatureScore, na.rm = TRUE),
+    ymax = max(SignatureScore, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    span = dplyr::if_else(ymax > ymin, ymax - ymin, 0.2),
+    y_pos = ymax - 0.05 * span
+  ) %>%
+  dplyr::select(Day, y_pos)
+
+sig_score_df <- pvals_score %>%
+  dplyr::left_join(label_pos_score, by = "Day")
+
+ggplot(score_avg,
+       aes(x = Day,
+           y = mean_score,
+           color = Group,
+           shape = Group,
+           group = Group)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
+  geom_errorbar(
+    aes(ymin = mean_score - se,
+        ymax = mean_score + se),
+    width = 0.5
+  ) +
+  geom_text(
+    data = sig_score_df,
+    aes(x = Day, y = y_pos, label = signif_label),
+    inherit.aes = FALSE,
+    size = 7
+  ) +
+  scale_color_manual(values = c(
+    "Control Syngeneic" = "#2E6F40",
+    "Acceptance" = "#064273"
+  )) +
+  scale_shape_manual(values = c(
+    "Control Syngeneic" = 17,
+    "Acceptance" = 16
+  )) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Days Post Transplant",
+    y = "Allo Acceptance vs Syn Score",
+    title = "Allogeneic Acceptance vs Syngeneic Score Over Time"
+  )
+
+# 7.Allo+Anti-CD40L Rejection vs Allo -----
+
+# subset samples
+sel <- colData(dds_IsletTransplant)$Group %in% c("Control Allogeneic","Rejection") & colData(dds_IsletTransplant)$Day %in% c(7,14)
+#IS- Immunosuppressed
+dds_IsletTransplant_IS_RejVsAllo <- dds_IsletTransplant[, sel]
+
+dds_IsletTransplant_IS_RejVsAllo$Batch       <- factor(dds_IsletTransplant_IS_RejVsAllo$Batch)
+dds_IsletTransplant_IS_RejVsAllo$LibraryPrep <- factor(dds_IsletTransplant_IS_RejVsAllo$LibraryPrep)
+dds_IsletTransplant_IS_RejVsAllo$Group <- factor(
+  dds_IsletTransplant_IS_RejVsAllo$Group,
+  levels = c("Control Allogeneic", "Rejection")  # order sets baseline
+)
+levels(dds_IsletTransplant_IS_RejVsAllo$Group)
+
+dds_IsletTransplant_IS_RejVsAllo$Day <- factor(dds_IsletTransplant_IS_RejVsAllo$Day,
+                                                  levels = c(7, 14))  # baseline = 7
+levels(dds_IsletTransplant_IS_RejVsAllo$Day)
+
+cd <- as.data.frame(colData(dds_IsletTransplant_IS_RejVsAllo))
+mm <- model.matrix(~ Batch + LibraryPrep + Day + Group, data = cd)
+qr_mm <- qr(mm)
+
+kept    <- colnames(mm)[qr_mm$pivot[seq_len(qr_mm$rank)]]
+dropped <- if (qr_mm$rank < ncol(mm)) colnames(mm)[qr_mm$pivot[(qr_mm$rank+1):ncol(mm)]] else character()
+kept
+dropped
+table(cd$Group,cd$Day)
+
+#Check if logIEQ varies systemically with Group or Day
+boxplot(logIEQ ~ Group, data = colData(dds_IsletTransplant_IS_RejVsAllo)) #Signficantly different between groups
+
+#Design Formula
+keep <- rowSums(counts(dds_IsletTransplant_IS_RejVsAllo) >= 10) >= 2  # Smallest number of samples in a group
+dds_IsletTransplant_IS_RejVsAllo <- dds_IsletTransplant_IS_RejVsAllo[keep, ]
+
+design(dds_IsletTransplant_IS_RejVsAllo) <- ~ Batch + Day + Group 
+dds_IsletTransplant_IS_RejVsAllo <- DESeq(dds_IsletTransplant_IS_RejVsAllo)
+design(dds_IsletTransplant_IS_RejVsAllo)
+resultsNames(dds_IsletTransplant_IS_RejVsAllo)
+
+# Genes with statistics
+res_IS_REJvALLO <- results(dds_IsletTransplant_IS_RejVsAllo,
+                          name = "Group_Rejection_vs_Control.Allogeneic")
+
+summary(res_IS_REJvALLO)
+
+
+# Thresholds
+q_cut  <- 0.05
+fc_cut <- 1
+
+
+ALL_IS_REJVSALLO  <- as.data.frame(res_IS_REJvALLO);  ALL_IS_REJVSALLO$gene  <- rownames(res_IS_REJvALLO)
+
+write.csv(ALL_IS_REJVSALLO, "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Rejection_Vs_Allogeneic/DESEQResults_RejectionVsAllogeneic.csv", row.names = TRUE)
+
+# Function to create color mapping
+make_keyvals_fdr_fc_IsRejvsAllo <- function(df, q = 0.10, fc = 1,
+                                           col_up = "#D62728", col_down = "#1F77B4", col_ns = "gray70") {
+  # valid stats (for coloring); everything else becomes NS
+  ok   <- !is.na(df$padj) & !is.na(df$log2FoldChange)
+  
+  up   <- ok & df$padj < q & df$log2FoldChange >=  fc
+  down <- ok & df$padj < q & df$log2FoldChange <= -fc
+  
+  # default color + label
+  key   <- rep(col_ns, nrow(df))
+  label <- rep("Not significant", nrow(df))
+  
+  # overwrite where significant
+  key[up]   <- col_up
+  key[down] <- col_down
+  
+  label[up]   <- paste0("Anti-CD40L Rejection-Upregulated")
+  label[down] <- paste0("Rejection-Upregulated")
+  
+  names(key) <- label        # <- legend labels; no NAs
+  key
+}
+
+keyvals_ALL  <- make_keyvals_fdr_fc_IsRejvsAllo(res_IS_REJvALLO)
+
+
+selLab_ALL_IS_REJVSALLO  <- pick_labels(ALL_IS_REJVSALLO,  q_cut, fc_cut, 40)
+
+
+## 3) Axis limits
+xmax_ALL  <- max(2, ceiling(max(abs(res_IS_REJvALLO$log2FoldChange),  na.rm=TRUE)))
+
+EnhancedVolcano(
+  res_IS_REJvALLO,
+  lab           = ALL_IS_REJVSALLO$gene,
+  x             = "log2FoldChange",
+  y             = "padj",
+  pCutoff       = 0.05,          # FDR threshold
+  FCcutoff      = 1,
+  xlab          = expression("log"[2]*"(Fold Change)"),
+  ylab          = expression("-log"[10]*"(FDR)"),
+  title         = "Anti-CD40L Rejection vs Control Rejection — Combined Timepoints",
+  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(res_IS_REJvALLO$padj<0.10 & abs(res_IS_REJvALLO$log2FoldChange)>=1, na.rm=TRUE), ")"),
+  xlim          = c(-xmax_ALL, xmax_ALL),
+  ylim = c(0,10),
+  boxedLabels   = TRUE,
+  pointSize     = 3,
+  labSize       = 6,
+  colAlpha      = 0.8,
+  drawConnectors= TRUE,
+  max.overlaps = 35,
+  colCustom     = keyvals_ALL,
+  legendPosition= "right",
+  selectLab     = selLab_ALL_IS_REJVSALLO
+)
+
+## Heatmap and PCA-DE Genes----
+
+sig_genes_IS_REJVSALLO<- ALL_IS_REJVSALLO$gene[
+  !is.na(ALL_IS_REJVSALLO$padj) &
+    ALL_IS_REJVSALLO$padj <= 0.05 &
+    abs(ALL_IS_REJVSALLO$log2FoldChange) >= 1
+]
+
+length(sig_genes_IS_REJVSALLO)
+
+
+vsd <- vst(dds_IsletTransplant_IS_RejVsAllo, blind = FALSE)
+mat <- assay(vsd)
+cd <- as.data.frame(colData(dds_IsletTransplant_IS_RejVsAllo))
+design_heatmap <- model.matrix(~ Group, data = cd)
+mat_bc <- limma::removeBatchEffect(
+  mat,
+  batch = vsd$Batch,
+  covariates = model.matrix(~ Day, data = cd)[, -1, drop = FALSE],
+  design = design_heatmap
+)
+
+
+anno_col <- colData(dds_IsletTransplant_IS_RejVsAllo)[, c( "Group","Day")] |> 
+  as.data.frame()
+
+
+annotation_colors <- list(
+  Group = c(
+    "Rejection" = "#F28500" ,   # Tangerine
+    "Control Allogeneic" = "#FF2400"    # Scarlet
+  ),
+  Day = c(
+    "7" = "#F28E6B",
+    "14" = "#6FA287"
+  )
+)
+
+mat_bc_RejVsAllo <- mat_bc[sig_genes_IS_REJVSALLO,]
+# row-scale genes
+mat_bc_RejVsAllo_scaled <- t(scale(t(mat_bc_RejVsAllo)))
+# remove genes with zero variance if any
+mat_bc_RejVsAllo_scaled <- mat_bc_RejVsAllo_scaled[complete.cases(mat_bc_RejVsAllo_scaled), , drop = FALSE]
+
+samples_RejVsAllo<-colnames(dds_IsletTransplant_IS_RejVsAllo)
+# annotation
+anno_col <- anno_col[samples_RejVsAllo, , drop = FALSE]
+
+
+col_fun <- colorRamp2(
+  seq(-2, 2, length.out = 100),
+  colorRampPalette(c("navy", "white", "firebrick3"))(100)
+)
+ha_col <- HeatmapAnnotation(
+  df = anno_col,
+  col = annotation_colors
+)
+ht <- Heatmap(
+  mat_bc_RejVsAllo_scaled,
+  name = "Z-score",
+  top_annotation = ha_col,
+  col = col_fun,
+  cluster_rows = TRUE,
+  cluster_columns = TRUE,
+  show_row_names = TRUE,
+  show_column_names = FALSE,
+  column_title = paste0(
+    "Allogeneic Rejection vs Control Allogeneic (n = ",
+    nrow(mat_bc_RejVsAllo_scaled), ")"
+  ),
+  heatmap_legend_param = list(
+    title = "Expression",
+    legend_direction = "vertical"
+  )
+)
+
+draw(ht)
+
+#PCA Analysis
+mat_pca <- t(mat_bc_RejVsAllo)
+pca <- prcomp(mat_pca, scale. = TRUE)
+pca_df <- data.frame(
+  PC1 = pca$x[,1],
+  PC2 = pca$x[,2],
+  Group = cd$Group
+)
+
+# Define colors & shapes
+group_colors <- c("Control Allogeneic" ="#FF2400" , "Rejection" = "#F28500" )
+group_shapes <- c("Control Allogeneic" = 25, "Rejection" = 15)
+
+
+
+ggplot(pca_df, aes(PC1, PC2, color = Group,, shape = Group)) +
+  geom_point(aes(fill = Group), size = 5, stroke = 1.2) +
+  stat_ellipse(geom = "polygon", alpha = 0.2, aes(fill = Group), show.legend = FALSE, level = 0.7) +
+  scale_color_manual(values = group_colors) +
+  scale_fill_manual(values = group_colors) +
+  scale_shape_manual(values = group_shapes) +
+  theme_classic(base_size = 18) +
+  labs(
+    title = "PCA of DE Genes: Allo Rejection vs Control Allo",
+    x = paste0("PC1 (", round(100 * summary(pca)$importance[2,1],1), "%)"),
+    y = paste0("PC2 (", round(100 * summary(pca)$importance[2,2],1), "%)")
+  ) +
+  theme(
+    legend.position = "top",
+    axis.title = element_text(size = 20, face = "bold"),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 1),
+    panel.grid = element_blank()
+  )
+
+
+
+
+## GSEA Analysis----
 
 # --- Collect each set and convert into 2-column (gs_name, gene_symbol) ---
 
@@ -2732,6 +2874,8 @@ mm_c8_df <- data.frame(
   gs_name = rep(names(mm_c8_sets), sapply(mm_c8_sets, length)),
   gene_symbol = unlist(mm_c8_sets)
 )
+
+
 # Hallmark
 hallmark <- msigdbr(species = "Mus musculus", category  = "H")
 mm_h_sets <- split(hallmark$gene_symbol, hallmark$gs_name)
@@ -2739,6 +2883,8 @@ mm_h_df <- data.frame(
   gs_name = rep(names(mm_h_sets), sapply(mm_h_sets, length)),
   gene_symbol = unlist(mm_h_sets)
 )
+
+
 # KEGG
 kegg_all <- msigdbr(species="Mus musculus", category="C2", subcategory="CP:KEGG_LEGACY")
 mm_kegg_sets <- split(kegg_all$gene_symbol, kegg_all$gs_name)
@@ -2750,149 +2896,78 @@ mm_kegg_df <- data.frame(
 # --- Final combined TERM2GENE data frame ---
 mm_all_df <- rbind(mm_c8_df, mm_h_df, mm_kegg_df)
 
-library(clusterProfiler)
-library(msigdbr)
-# Day 7
-gsea_results_d7_TolVsSyn <- GSEA(
-  geneList      = lfc_vector_d7_TolVsSyn,
+
+# Paths to your saved results
+ALL_IS_REJVSALLO_path  <- "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Rejection_Vs_Allogeneic/DESEQResults_RejectionVsAllogeneic.csv"
+
+# Import
+ALL_IS_REJVSALLO  <- read.csv(ALL_IS_REJVSALLO_path,  row.names = 1)
+
+# Build ranked gene lists using DESeq2 Wald stat
+lfc_vector_ISREJVSALLO  <- ALL_IS_REJVSALLO$stat;  names(lfc_vector_ISREJVSALLO)  <- rownames(ALL_IS_REJVSALLO)
+
+# Drop NAs
+lfc_vector_ISREJVSALLO  <- lfc_vector_ISREJVSALLO[!is.na(lfc_vector_ISREJVSALLO)]
+
+# Sort decreasing (required by clusterProfiler::GSEA)
+lfc_vector_ISREJVSALLO  <- sort(lfc_vector_ISREJVSALLO,  decreasing = TRUE)
+
+gsea_results_ISREJVSALLO <- GSEA(
+  geneList      = lfc_vector_ISREJVSALLO,
   minGSSize     = 5,
   maxGSSize     = 500,
-  pvalueCutoff  = 1,
+  pvalueCutoff  = 0.1,
   eps           = 0,
   seed          = TRUE,
   pAdjustMethod = "BH",
   #keyType       = "SYMBOL",       # <- tell it explicitly
   TERM2GENE     = mm_all_df
 )
-gsea_results_d7_TolVsSyn_df <- as.data.frame(gsea_results_d7_TolVsSyn)
-
-# Day 14
-gsea_results_d14_TolVsSyn <- GSEA(
-  geneList      = lfc_vector_d14_TolVsSyn,
-  minGSSize     = 5,
-  maxGSSize     = 500,
-  pvalueCutoff  = 1,
-  eps           = 0,
-  seed          = TRUE,
-  pAdjustMethod = "BH",
-  TERM2GENE     = mm_all_df
-)
-gsea_results_d14_TolVsSyn_df <- as.data.frame(gsea_results_d14_TolVsSyn)
+gsea_results_ISREJVSALLO <- as.data.frame(gsea_results_ISREJVSALLO)
 
 
-# Day 28
-gsea_results_d28_TolVsSyn <- GSEA(
-  geneList      = lfc_vector_d28_TolVsSyn,
-  minGSSize     = 5,
-  maxGSSize     = 500,
-  pvalueCutoff  = 1,
-  eps           = 0,
-  seed          = TRUE,
-  pAdjustMethod = "BH",
-  TERM2GENE     = mm_all_df
-)
-gsea_results_d28_TolVsSyn_df <- as.data.frame(gsea_results_d28_TolVsSyn)
-
-# Day 42
-gsea_results_d42_TolVsSyn <- GSEA(
-  geneList      = lfc_vector_d42_TolVsSyn,
-  minGSSize     = 5,
-  maxGSSize     = 500,
-  pvalueCutoff  = 1,
-  eps           = 0,
-  seed          = TRUE,
-  pAdjustMethod = "BH",
-  TERM2GENE     = mm_all_df
-)
-gsea_results_d42_TolVsSyn_df <- as.data.frame(gsea_results_d42_TolVsSyn)
-
-# Day 56
-gsea_results_d56_TolVsSyn <- GSEA(
-  geneList      = lfc_vector_d56_TolVsSyn,
-  minGSSize     = 5,
-  maxGSSize     = 500,
-  pvalueCutoff  = 1,
-  eps           = 0,
-  seed          = TRUE,
-  pAdjustMethod = "BH",
-  TERM2GENE     = mm_all_df
-)
-gsea_results_d56_TolVsSyn_df <- as.data.frame(gsea_results_d56_TolVsSyn)
-
-# Day 70
-gsea_results_d70_TolVsSyn <- GSEA(
-  geneList      = lfc_vector_d70_TolVsSyn,
-  minGSSize     = 5,
-  maxGSSize     = 500,
-  pvalueCutoff  = 1,
-  eps           = 0,
-  seed          = TRUE,
-  pAdjustMethod = "BH",
-  TERM2GENE     = mm_all_df
-)
-gsea_results_d70_TolVsSyn_df <- as.data.frame(gsea_results_d70_TolVsSyn)
-
-
-# Full results Day 7
-write.csv(gsea_results_d7_TolVsSyn_df,
-          "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/Allogeneic_Vs_Syngeneic/GSEAResults_TolVsSyn_Day7.csv",
-          row.names = FALSE)
-
-# Full results Day 14
-write.csv(gsea_results_d14_TolVsSyn_df,
-          "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/GSEAResults_TolVsSyn_Day14.csv",
-          row.names = FALSE)
-
-# Full results Day 28
-write.csv(gsea_results_d28_TolVsSyn_df,
-          "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/GSEAResults_TolVsSyn_Day28.csv",
-          row.names = FALSE)
-
-# Full results Day 42
-write.csv(gsea_results_d42_TolVsSyn_df,
-          "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/GSEAResults_TolVsSyn_Day42.csv",
+# Full results Combined Timepoins
+write.csv(gsea_results_ISREJVSALLO,
+          "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Rejection_Vs_Allogeneic/GSEAResults_ISRejectionVsAllogeneic_DaysCombined.csv",
           row.names = FALSE)
 
 
-# Full results Day 56
-write.csv(gsea_results_d56_TolVsSyn_df,
-          "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/GSEAResults_TolVsSyn_Day56.csv",
-          row.names = FALSE)
-
-# Full results Day 70
-write.csv(gsea_results_d70_TolVsSyn_df,
-          "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/GSEAResults_TolVsSyn_Day70.csv",
-          row.names = FALSE)
 
 
-library(dplyr)
-library(stringr)
-library(ggplot2)
-
-# Your curated list EXACTLY as provided (de-dup just in case)
-immune_master <- unique(c(
-  "KEGG_RIG_I_LIKE_RECEPTOR_SIGNALING_PATHWAY",
-  "HALLMARK_ALLOGRAFT_REJECTION",
-  "KEGG_GRAFT_VERSUS_HOST_DISEASE",
-  "KEGG_NATURAL_KILLER_CELL_MEDIATED_CYTOTOXICITY",
-  "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
-  "HALLMARK_INTERFERON_GAMMA_RESPONSE",
-  "HALLMARK_IL6_JAK_STAT3_SIGNALING",
-  "HALLMARK_COMPLEMENT",
-  "CUI_DEVELOPING_HEART_C8_MACROPHAGE",
-  "HALLMARK_HYPOXIA",
-  "HALLMARK_INFLAMMATORY_RESPONSE",
-  "HALLMARK_MTORC1_SIGNALING",
+immune_master_ISREJVSALLO <- unique(c(
+  #DOWNREGULATED
+  "HE_LIM_SUN_FETAL_LUNG_C5_PRO_B_CELL",
+  "TRAVAGLINI_LUNG_PROLIFERATING_NK_T_CELL",
+  "DESCARTES_FETAL_PANCREAS_LYMPHOID_CELLS",
+  "DESCARTES_FETAL_LIVER_LYMPHOID_CELLS",
+  "TRAVAGLINI_LUNG_CD8_NAIVE_T_CELL",
+  "AIZARANI_LIVER_C1_NK_NKT_CELLS_1",
+  "TRAVAGLINI_LUNG_CD4_NAIVE_T_CELL",
+  "AIZARANI_LIVER_C12_NK_NKT_CELLS_4",
+  "TRAVAGLINI_LUNG_CD8_MEMORY_EFFECTOR_T_CELL",
+  "TRAVAGLINI_LUNG_NATURAL_KILLER_CELL",
   "KEGG_ANTIGEN_PROCESSING_AND_PRESENTATION",
-  "KEGG_JAK_STAT_SIGNALING_PATHWAY",
+  "HALLMARK_INTERFERON_ALPHA_RESPONSE",
+  "TRAVAGLINI_LUNG_NATURAL_KILLER_T_CELL",
+  #UPREGULATED
+  "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
+  "SU_HO_CONV_CENT_CHONDROSARCOMA_LEUKOCYTE_C0_M1_MACROPHAGE",
+  "HAY_BONE_MARROW_NEUTROPHIL",
+  "HAY_BONE_MARROW_IMMATURE_NEUTROPHIL",
+  "TRAVAGLINI_LUNG_CLASSICAL_MONOCYTE_CELL",
+  "AIZARANI_LIVER_C23_KUPFFER_CELLS_3",
+  "DESCARTES_FETAL_PANCREAS_MYELOID_CELLS",
+  "HALLMARK_IL6_JAK_STAT3_SIGNALING",
   "KEGG_NOD_LIKE_RECEPTOR_SIGNALING_PATHWAY",
+  "HALLMARK_INFLAMMATORY_RESPONSE",
+  "HE_LIM_SUN_FETAL_LUNG_C2_CXCL9_POS_MACROPHAGE_CELL",
   "KEGG_TOLL_LIKE_RECEPTOR_SIGNALING_PATHWAY",
-  "TRAVAGLINI_LUNG_CLASSICAL_MONOCYTE_CELL","TRAVAGLINI_LUNG_NONCLASSICAL_MONOCYTE_CELL",
-  "TRAVAGLINI_LUNG_NEUTROPHIL_CELL","TRAVAGLINI_LUNG_PROLIFERATING_NK_T_CELL",
-  "HE_LIM_SUN_FETAL_LUNG_C4_CD8_T_CELL",
-  "HALLMARK_E2F_TARGETS",
-  "HE_LIM_SUN_FETAL_LUNG_C5_PRO_B_CELL"
-  
+  "HE_LIM_SUN_FETAL_LUNG_C2_S100A12_HI_CLASSICAL_MONOCYTE",
+  "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION",
+  "HALLMARK_APOPTOSIS",
+  "KEGG_FC_EPSILON_RI_SIGNALING_PATHWAY",
+  "TRAVAGLINI_LUNG_IGSF21_DENDRITIC_CELL",
+  "KEGG_RIG_I_LIKE_RECEPTOR_SIGNALING_PATHWAY"
 ))
 
 # Helper to standardize clusterProfiler GSEA columns
@@ -2908,224 +2983,38 @@ coerce_gsea_tbl <- function(df, day_label){
   )
 }
 
-# Build tidy tables for each day
-d7_tbl  <- coerce_gsea_tbl(gsea_results_d7_TolVsSyn_df,  "Day 7")
-d14_tbl <- coerce_gsea_tbl(gsea_results_d14_TolVsSyn_df, "Day 14")
-d28_tbl <- coerce_gsea_tbl(gsea_results_d28_TolVsSyn_df, "Day 28")
-d42_tbl <- coerce_gsea_tbl(gsea_results_d42_TolVsSyn_df, "Day 42")
-d56_tbl <- coerce_gsea_tbl(gsea_results_d56_TolVsSyn_df, "Day 56")
-d70_tbl <- coerce_gsea_tbl(gsea_results_d70_TolVsSyn_df, "Day 70")
-
-# Keep ONLY immune_master pathways
-d7_sel  <- d7_tbl  %>% filter(gs_name %in% immune_master)
-d14_sel <- d14_tbl %>% filter(gs_name %in% immune_master)
-d28_sel <- d28_tbl %>% filter(gs_name %in% immune_master)
-d42_sel <- d42_tbl %>% filter(gs_name %in% immune_master)
-d56_sel <- d56_tbl %>% filter(gs_name %in% immune_master)
-d70_sel <- d70_tbl %>% filter(gs_name %in% immune_master)
-
-# Combine and ensure both days present for every pathway
-plot_df <- bind_rows(d7_sel, d14_sel, d28_sel, d42_sel, d56_sel, d70_sel) %>%
-  mutate(Day = factor(Day, levels = c("Day 7","Day 14", "Day 28","Day 42","Day 56","Day 70"))) %>%
-  # create full grid of (gs_name x Day) and fill missing with neutral values
-  complete(gs_name = immune_master, Day,
-           fill = list(NES = 0, padj = 1)) %>%
-  mutate(logp = -log10(padj))
-
-# Order rows nicely (keep your immune_master order or order by category if you prefer)
-plot_df$gs_name <- factor(plot_df$gs_name, levels = rev(immune_master))
-
-# Plot: rows = pathways, columns = Day; size = −log10(padj); color = NES
-p <- ggplot(plot_df, aes(x = Day, y = gs_name)) +
-  geom_point(aes(size = logp, color = NES)) +
-  scale_size_continuous(name = "−log10(padj)", range = c(0, 10)) +
-  scale_color_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0, name = "NES") +
-  labs(x = "", y = "", title = "Enriched Pathways") +
-  theme_bw() +
-  theme(
-    axis.text.y  = element_text(size = 10),
-    axis.text.x  = element_text(size = 14, angle = 45, hjust = 1, face = "bold"),
-    plot.title   = element_text(hjust = 0.5, face = "bold")
-  )
-print(p)
-
-library(dplyr)
-library(purrr)
-library(tidyr)
-
-# helper: pick NES + FDR for one day and rename columns to include the day
-extract_NES_FDR <- function(df, day_label){
-  df <- as.data.frame(df)
-  if (!"Description" %in% names(df)) df$Description <- df$ID
-  # prefer qvalues (FDR); else fall back to BH-adjusted p (p.adjust)
-  fdr_col <- if ("qvalues" %in% names(df)) "qvalues" else "p.adjust"
-  df %>%
-    distinct(ID, Description, .keep_all = TRUE) %>%   # safety: remove any duplicates
-    transmute(
-      ID, Description,
-      !!paste0("NES_", day_label) := NES,
-      !!paste0("FDR_", day_label) := .data[[fdr_col]]
-    )
-}
-
-# build per-day slim tables
-d7  <- extract_NES_FDR(gsea_results_d7_TolVsSyn_df,  "D7")
-d14 <- extract_NES_FDR(gsea_results_d14_TolVsSyn_df, "D14")
-d28 <- extract_NES_FDR(gsea_results_d28_TolVsSyn_df, "D28")
-d42 <- extract_NES_FDR(gsea_results_d42_TolVsSyn_df, "D42")
-d56 <- extract_NES_FDR(gsea_results_d56_TolVsSyn_df, "D56")
-d70 <- extract_NES_FDR(gsea_results_d70_TolVsSyn_df, "D70")
-library(purrr)
-
-# full outer join on ID + Description to align rows
-gsea_wide <- purrr::reduce(list(d7, d14, d28, d42, d56, d70),
-                    full_join, by = c("ID","Description"))
-
-# optional: order rows by best (min) FDR across days, then by max |NES|
-fdr_cols <- grep("^FDR_", names(gsea_wide), value = TRUE)
-nes_cols <- grep("^NES_", names(gsea_wide), value = TRUE)
-gsea_wide <- gsea_wide %>%
+plot_df <- gsea_results_ISREJVSALLO %>%
+  filter(ID %in% immune_master_ISREJVSALLO) %>%
   mutate(
-    minFDR = do.call(pmin, c(across(all_of(fdr_cols)), list(na.rm = TRUE))),
-    maxAbsNES = do.call(pmax, c(across(all_of(nes_cols), ~abs(.x)), list(na.rm = TRUE)))
+    neglog10_padj = -log10(p.adjust),
+    neglog10_padj = ifelse(is.infinite(neglog10_padj), NA, neglog10_padj)
   ) %>%
-  arrange(minFDR, desc(maxAbsNES)) %>%
-  select(-minFDR, -maxAbsNES)
-
-# write combined table
-out_file <- "/Users/jyotirmoyroy/Desktop/IsletTransplantRejection/ToleranceVsSyngeneic/GSEA_NES_FDR_AllDaysCombined.csv"
-write.csv(gsea_wide, out_file, row.names = FALSE)
-
-library(dplyr)
-library(tidyr)
-
-# --- choose the timepoints you want to require significance for ---
-days5 <- c("D14","D28","D42","D56","D70")
-fdr_cols_5 <- paste0("FDR_", days5)
-
-# safety: ensure those columns exist
-stopifnot(all(fdr_cols_5 %in% names(gsea_wide)))
-
-# 1) Significant across ALL 5 chosen timepoints (FDR < 0.1 at each)
-sig_all5 <- gsea_wide %>%
-  filter(if_all(all_of(fdr_cols_5), ~ !is.na(.x) & .x < 0.10)) %>%
-  arrange(Description)
-
-# Inspect a compact list
-sig_all5_paths <- sig_all5 %>% select(ID, Description)
-sig_all5_paths
-
-library(dplyr)
-
-#  define windows (edit these if you want different bins)
-early_days <- c("D7","D14")
-late_days  <- c("D42","D56","D70")
-
-early_fdr <- paste0("FDR_", early_days)
-late_fdr  <- paste0("FDR_", late_days)
-early_nes <- paste0("NES_", early_days)
-late_nes  <- paste0("NES_", late_days)
-
-# Safety checks
-stopifnot(all(c(early_fdr, late_fdr, early_nes, late_nes) %in% names(gsea_wide)))
-
-base_sig <- gsea_wide %>%
-  filter(if_all(all_of(c(early_fdr, late_fdr)), ~ !is.na(.x) & .x < 0.10)) %>%
+  arrange(NES) %>%
   mutate(
-    early_mean_NES = rowMeans(across(all_of(early_nes)), na.rm = TRUE),
-    late_mean_NES  = rowMeans(across(all_of(late_nes)),  na.rm = TRUE)
+    ID = factor(ID, levels = ID)
   )
 
 
-#7. Tolerance Group- Sublcustering----
+ggplot(plot_df, aes(x = NES, y = ID, size = neglog10_padj, color = NES)) +
+  geom_point(alpha = 0.9) +
+  scale_size_continuous(name = expression(-log[10](adjusted~italic(p))), range = c(3, 10)) +
+  scale_color_gradient2(
+    low = "#FF2400",
+    mid = "white",
+    high = "#F28500",
+    midpoint = 0,
+    name = "NES"
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Normalized Enrichment Score (NES)",
+    y = NULL,
+    title = "Anti-CD40L Allogeneic Rejection vs Allogeneic"
+  ) +
+  theme(
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
 
-# Core
-library(DESeq2)
-library(limma)
-library(tidyverse)
-
-# Embeddings & kNN graph clustering
-library(RANN)      # fast kNN
-library(igraph)    # Louvain clustering
-library(uwot)      # UMAP
-library(irlba)     # fast PCA
-
-# Optional visualization helpers
-library(ggplot2)
-library(ggrepel)
-
-hvg_select <- function(mat, n = 2000) {
-  # mat: genes x samples (e.g., VST)
-  vars <- matrixStats::rowVars(mat)
-  ord  <- order(vars, decreasing = TRUE)
-  mat[ord[seq_len(min(n, nrow(mat)))], , drop = FALSE]
-}
-
-build_knn_graph <- function(X, k = 10) {
-  # X: samples x features (e.g., PCs)
-  nn  <- RANN::nn2(X, k = k + 1)                     # +1 because 1-NN is itself
-  idx <- nn$nn.idx[, -1, drop = FALSE]               # drop self
-  # edges: each sample i connects to its k neighbors
-  edges <- cbind(rep(seq_len(nrow(idx)), times = ncol(idx)),
-                 as.vector(idx))
-  g <- igraph::graph_from_edgelist(as.matrix(edges), directed = FALSE)
-  igraph::simplify(g)
-}
-
-
-louvain_clusters <- function(g) {
-  igraph::cluster_louvain(g)$membership |> factor()
-}
-
-sel <- colData(dds_IsletTransplant)$Group %in% c("Tolerance")  #& colData(dds_IsletTransplant)$Day %in% c(7,14,28,42,56,70)
-#IS- Immunosuppressed
-dds_tol <- dds_IsletTransplant[, sel]
-vsd  <- vst(dds_tol, blind = FALSE)
-mat  <- assay(vsd)
-colData(mat)$Batch
-
-# --- Remove batch (for visualization only) ---
-mat_bc <- removeBatchEffect(mat, batch = colData(vsd)$Batch)
-
-# mat_bc: genes x samples
-mat_hvg <- hvg_select(mat_bc, n = 2000)      # genes x samples (G x N)
-
-# Make rows = samples, cols = genes
-X  <- t(mat_hvg)                              # samples x genes (N x G)
-Xs <- scale(X, center = TRUE, scale = FALSE)  # center genes across samples
-
-# PCA on samples x genes
-pc <- irlba::prcomp_irlba(Xs, n = 30, center = FALSE, scale. = FALSE)
-PC <- pc$x                                    # samples x PCs
-
-# Sanity check
-stopifnot(nrow(PC) == ncol(mat_bc))           # should be 80 here
-
-# UMAP + clustering on PC space (samples)
-set.seed(123)
-UMAP <- uwot::umap(PC, n_neighbors = 15, min_dist = 0.2)
-
-g   <- build_knn_graph(PC, k = 10)            # PC has samples in rows
-clu <- factor(igraph::cluster_louvain(g)$membership)
-
-# Now lengths match
-meta <- as.data.frame(colData(vsd))
-stopifnot(nrow(meta) == length(clu))
-meta$Cluster <- clu
-
-# assuming UMAP is an N x 2 matrix (samples x coords)
-df_plot <- cbind(meta, as.data.frame(UMAP)) |>
-  dplyr::rename(UMAP1 = V1, UMAP2 = V2)
-
-# Plot by cluster
-library(ggplot2)
-ggplot(df_plot, aes(x = UMAP1, y = UMAP2, color = Cluster)) +
-  geom_point(size = 3, alpha = 0.9) +
-  theme_bw() +
-  ggtitle("Tolerance samples clustered")
-
-# Plot by timepoint
-ggplot(df_plot, aes(x = UMAP1, y = UMAP2, color = Day)) +
-  geom_point(size = 3, alpha = 0.9) +
-  theme_bw() +
-  ggtitle("Colored by Day")
