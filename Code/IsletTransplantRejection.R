@@ -1640,7 +1640,6 @@ immune_master_REJVSACCEP <- unique(c(
   #"HE_LIM_SUN_FETAL_LUNG_C4_NKT1_CELL",
   #"DESCARTES_MAIN_FETAL_CCL19_CCL21_POSITIVE_CELLS",
   "DESCARTES_FETAL_PANCREAS_CCL19_CCL21_POSITIVE_CELLS",
-  "TRAVAGLINI_LUNG_NATURAL_KILLER_T_CELL",
   "HE_LIM_SUN_FETAL_LUNG_C2_CXCL9_POS_MACROPHAGE_CELL",
   #"HALLMARK_TGF_BETA_SIGNALING",
   #Downregulated
@@ -1654,14 +1653,15 @@ immune_master_REJVSACCEP <- unique(c(
   #"TRAVAGLINI_LUNG_CLASSICAL_MONOCYTE_CELL",
   "DESCARTES_FETAL_LIVER_MYELOID_CELLS",
   #"DESCARTES_MAIN_FETAL_ANTIGEN_PRESENTING_CELLS",
-  "SU_HO_CONV_CENT_CHONDROSARCOMA_LEUKOCYTE_C1_M2_MACROPHAGE",
+  #"SU_HO_CONV_CENT_CHONDROSARCOMA_LEUKOCYTE_C1_M2_MACROPHAGE",
   #"DURANTE_ADULT_OLFACTORY_NEUROEPITHELIUM_NK_CELLS",
   "KEGG_FC_GAMMA_R_MEDIATED_PHAGOCYTOSIS",
   #"DESCARTES_FETAL_THYMUS_ANTIGEN_PRESENTING_CELLS",
   "HAY_BONE_MARROW_DENDRITIC_CELL",
   "HALLMARK_PEROXISOME",
   #"KEGG_PEROXISOME",
-  "HALLMARK_FATTY_ACID_METABOLISM"
+  "HALLMARK_FATTY_ACID_METABOLISM",c
+  "AIZARANI_LIVER_C1_NK_NKT_CELLS_1"
   #"KEGG_PURINE_METABOLISM",
   #"KEGG_PYRIMIDINE_METABOLISM"
   
@@ -1872,7 +1872,7 @@ write.csv(ALL_ACCEPVSSYN, "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejectio
 
 # Function to create color mapping
 make_keyvals_fdr_fc_AccepvsSyn <- function(df, q = 0.10, fc = 1,
-                                           col_up = "#D62728", col_down = "#1F77B4", col_ns = "gray70") {
+                                           col_up = "#064273", col_down = "#2E6F40" , col_ns = "gray70") {
   # valid stats (for coloring); everything else becomes NS
   ok   <- !is.na(df$padj) & !is.na(df$log2FoldChange)
   
@@ -1887,8 +1887,8 @@ make_keyvals_fdr_fc_AccepvsSyn <- function(df, q = 0.10, fc = 1,
   key[up]   <- col_up
   key[down] <- col_down
   
-  label[up]   <- paste0("Tolerance-Upregulated")
-  label[down] <- paste0("Syngeneic-Upregulated")
+  label[up]   <- paste0("Allogeneic Acceptance")
+  label[down] <- paste0("Syngeneic")
   
   names(key) <- label        # <- legend labels; no NAs
   key
@@ -1900,34 +1900,22 @@ keyvals_ALL  <- make_keyvals_fdr_fc_AccepvsSyn(ALL_ACCEPVSSYN)
 
 selLab_ALL_ACCEPVSSYN <- c(
   #Up
-  "S100a8",
-  "S100a9",
-  "Mmp8",
-  "Lcn2",
-  "Cxcr2",
-  "Cxcl1",
-  "Cxcl2",
-  "Cxcl3",
-  "Csf3r",
-  "Fpr1",
-  "Fpr2",
-  "Trem1",
   "Cd14",
-  "Il1b",
+  "Marco",
+  "Nos2",
+  "Nlrp3",
   "Tnf",
-  "Sell",
-  "Mcemp1",
-  "Slfn4",
-  "Slpi",
-  "Wfdc21",
+  "Csf3r",
+  "Cxcr2",
+  "S100a8", 
+  "S100a9", 
+  "Mmp8",
+  "Il17a",
+  "Slamf6",
+  "Themis",
   #DOwn
   "Ackr2",
-  "Alox15",
-  "Gpx2",
-  "Gsta4",
   "Il24",
-  "Ptgis",
-  "Susd4",
   "Vnn1"
 )
 ## 3) Axis limits
@@ -1943,8 +1931,8 @@ EnhancedVolcano(
   xlab          = expression("log"[2]*"(Fold Change)"),
   ylab          = expression("-log"[10]*"(FDR)"),
   title         = "Allogeneic Acceptance vs Syngeneic",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(ALL_ACCEPVSSYN$padj<0.10 & abs(ALL_ACCEPVSSYN$log2FoldChange)>=1, na.rm=TRUE), ")"),
-  xlim          = c(-8, 8),
+  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(ALL_ACCEPVSSYN$padj<0.05 & abs(ALL_ACCEPVSSYN$log2FoldChange)>=1, na.rm=TRUE), ")"),
+  xlim          = c(-10, 10),
   ylim = c(0,20),
   boxedLabels   = TRUE,
   pointSize     = 3,
@@ -2197,7 +2185,8 @@ immune_master_ACCEPVSSYN <- unique(c(
   "HAY_BONE_MARROW_NEUTROPHIL",
   "HAY_BONE_MARROW_IMMATURE_NEUTROPHIL",
   "TRAVAGLINI_LUNG_CLASSICAL_MONOCYTE_CELL",
-  "SU_HO_CONV_CENT_CHONDROSARCOMA_LEUKOCYTE_C0_M1_MACROPHAGE",
+  "HE_LIM_SUN_FETAL_LUNG_C2_CXCL9_POS_MACROPHAGE_CELL",
+  #"SU_HO_CONV_CENT_CHONDROSARCOMA_LEUKOCYTE_C0_M1_MACROPHAGE",
   "TRAVAGLINI_LUNG_IGSF21_DENDRITIC_CELL",
   "FAN_OVARY_CL4_T_LYMPHOCYTE_NK_CELL_1",
   "HALLMARK_INTERFERON_GAMMA_RESPONSE",
@@ -2244,9 +2233,9 @@ ggplot(plot_df, aes(x = NES, y = ID, size = neglog10_padj, color = NES)) +
   geom_point(alpha = 0.9) +
   scale_size_continuous(name = expression(-log[10](adjusted~italic(p))), range = c(3, 10)) +
   scale_color_gradient2(
-    low = "#064273",
+    low =  "forestgreen",
     mid = "white",
-    high = "#F28500",
+    high =  "#064273",
     midpoint = 0,
     name = "NES"
   ) +
@@ -2691,7 +2680,7 @@ write.csv(ALL_IS_REJVSALLO, "/Users/jyotirmoyroy/Desktop/Islet Transplant Reject
 
 # Function to create color mapping
 make_keyvals_fdr_fc_IsRejvsAllo <- function(df, q = 0.10, fc = 1,
-                                           col_up = "#D62728", col_down = "#1F77B4", col_ns = "gray70") {
+                                           col_up =  "#F28500", col_down = "#FF2400" , col_ns = "gray70") {
   # valid stats (for coloring); everything else becomes NS
   ok   <- !is.na(df$padj) & !is.na(df$log2FoldChange)
   
@@ -2706,8 +2695,8 @@ make_keyvals_fdr_fc_IsRejvsAllo <- function(df, q = 0.10, fc = 1,
   key[up]   <- col_up
   key[down] <- col_down
   
-  label[up]   <- paste0("Anti-CD40L Rejection-Upregulated")
-  label[down] <- paste0("Rejection-Upregulated")
+  label[up]   <- paste0("Anti-CD40L Rejection")
+  label[down] <- paste0("Control Allogeneic")
   
   names(key) <- label        # <- legend labels; no NAs
   key
@@ -2731,8 +2720,8 @@ EnhancedVolcano(
   FCcutoff      = 1,
   xlab          = expression("log"[2]*"(Fold Change)"),
   ylab          = expression("-log"[10]*"(FDR)"),
-  title         = "Anti-CD40L Rejection vs Control Rejection — Combined Timepoints",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(res_IS_REJvALLO$padj<0.10 & abs(res_IS_REJvALLO$log2FoldChange)>=1, na.rm=TRUE), ")"),
+  title         = "Anti-CD40L Rejection vs Control Rejection",
+  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(res_IS_REJvALLO$padj<0.05 & abs(res_IS_REJvALLO$log2FoldChange)>=1, na.rm=TRUE), ")"),
   xlim          = c(-xmax_ALL, xmax_ALL),
   ylim = c(0,10),
   boxedLabels   = TRUE,
@@ -2951,7 +2940,7 @@ immune_master_ISREJVSALLO <- unique(c(
   "TRAVAGLINI_LUNG_NATURAL_KILLER_T_CELL",
   #UPREGULATED
   "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
-  "SU_HO_CONV_CENT_CHONDROSARCOMA_LEUKOCYTE_C0_M1_MACROPHAGE",
+  "HE_LIM_SUN_FETAL_LUNG_C2_CXCL9_POS_MACROPHAGE_CELL",
   "HAY_BONE_MARROW_NEUTROPHIL",
   "HAY_BONE_MARROW_IMMATURE_NEUTROPHIL",
   "TRAVAGLINI_LUNG_CLASSICAL_MONOCYTE_CELL",
