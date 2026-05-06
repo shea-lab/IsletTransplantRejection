@@ -129,16 +129,11 @@ levels(dds_NODTransplantCounts_EarlyVsLate$Day)
 
 # Add log(IEQ) column
 colData(dds_NODTransplantCounts_EarlyVsLate)$logIEQ <- log(colData(dds_NODTransplantCounts_EarlyVsLate)$IEQ)
-# Check for Collinearity
 cd <- as.data.frame(colData(dds_NODTransplantCounts_EarlyVsLate))
 # Basic sanity
 lapply(cd[, c("Batch","LibraryPrep","Day","Group")], function(x) table(x, useNA="ifany"))
 # Check for NAs
 sapply(cd[, c("Batch","LibraryPrep","Day","Group")], function(x) any(is.na(x)))
-# Model matrix rank- Included Group, Treatment, and logIEQ
-mm <- model.matrix(~ Group + Treatment + logIEQ, data = cd)
-qr(mm)$rank; ncol(mm)             # if rank < ncol(mm), not full rank
-dev.off()
 # plot
 boxplot(logIEQ ~ Group, data = colData(dds_NODTransplantCounts_EarlyVsLate)) 
 table(cd$Group,cd$Day)
@@ -171,7 +166,7 @@ sig_genes_EARLYvLATE <- result_NOD_EarlyVsLate$gene[
 
 length(sig_genes_EARLYvLATE) #149 genes
 
-# Regress out attributable to Day and Treatment, Preserve variation assciated with Day
+# Regress out attributable to Day and Treatment, Preserve variation assciated with Group
 vsd <- vst(dds_NODTransplantCounts_EarlyVsLate, blind = FALSE)
 mat <- assay(vsd)
 cd <- as.data.frame(colData(dds_NODTransplantCounts_EarlyVsLate))
@@ -328,7 +323,7 @@ group_colors <- c( "Early Rejection" = "#B23A48",    # Tangerine
                    "Late Rejection" =  "#2A6F97" )
 group_shapes <- c("Early Rejection" = 15, "Late Rejection" = 16)
 
-ggplot(pca_df, aes(PC1, PC2, color = Group,, shape = Group)) +
+ggplot(pca_df, aes(PC1, PC2, color = Group, shape = Group)) +
   geom_point(aes(fill = Group), size = 5, stroke = 1.2) +
   stat_ellipse(geom = "polygon", alpha = 0.2, aes(fill = Group), show.legend = FALSE, level = 0.7) +
   scale_color_manual(values = group_colors) +
@@ -557,7 +552,7 @@ ggplot(gsva_avg,
     strip.text = element_text(size = 16)
   )
 
-library(openxlsx) 
+library(writexl) 
 
 gsva_NOD_pathways <- gsva_df  
 # Write to Excel
