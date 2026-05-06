@@ -78,6 +78,23 @@ NODTransplantCounts <- flexiDEG.function1(NOD_counts_batch, NOD_meta_batch, # Ge
 remove_pattern <- "^Gm[0-9]|^AC[0-9]|^AL[0-9]|^AI[0-9]|^AW[0-9]|^AF[0-9]|^BB[0-9]|^BC[0-9]|^CT[0-9]|^CAAA|^BX[0-9]|^CN[0-9]|^CR[0-9]|^C[0-9]{4,}|^Olfr"
 rows_to_remove <- grep(remove_pattern, rownames(NODTransplantCounts)) #Remove pseudo genes
 NODTransplantCounts <- NODTransplantCounts[-rows_to_remove, ]
+mart <- useEnsembl(
+  biomart = "genes",
+  dataset = "mmusculus_gene_ensembl",
+  mirror = "www"
+)
+# get gene biotypes
+gene_info <- getBM(
+  attributes = c("mgi_symbol", "gene_biotype"),
+  filters = "mgi_symbol",
+  values = rownames(NODTransplantCounts),
+  mart = mart
+)
+#setdiff(rownames(IsletTransplantCounts), gene_info$mgi_symbol)
+pseudo_genes <- gene_info$mgi_symbol[grep("pseudogene", gene_info$gene_biotype)]
+# remove them
+NODTransplantCounts <- NODTransplantCounts[
+  !(rownames(NODTransplantCounts) %in% pseudo_genes), ]
 
 write.csv(NODTransplantCounts, file = "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/NOD_Transplant/NOD_Raw_Counts_ITx_Filtered.csv", row.names = TRUE)
 
@@ -559,8 +576,9 @@ gsva_NOD_pathways <- gsva_df
 write_xlsx(gsva_NOD_pathways, "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Supplementary Tables/Supp_Table8_NODAllo_Early_vs_Late_Rejection.xlsx")
 
 ## EN  Scores----
+
 dds_use <- dds_NODTransplantCounts
-## 1) Remove sample 15402-JR-8,37
+## 1) Remove sample 15402-JR-8,37,55 
 dds_use <- dds_use[, !(colnames(dds_use) %in% c("15402-JR-37", "15402-JR-8","15402-JR-55"))]
 ## 2) Recode Day in metadata
 cd <- as.data.frame(colData(dds_use))
@@ -662,14 +680,25 @@ label_pos_score <- signature_df %>%
 sig_score_df <- pvals_score %>%
   dplyr::left_join(label_pos_score, by = "Day")
 
+score_avg <- score_avg %>%
+  dplyr::mutate(
+    Day = factor(Day, levels = c(0, 7, 14, 28, 42, 56, 70))
+  )
+
+sig_score_df <- sig_score_df %>%
+  dplyr::mutate(
+    Day = factor(Day, levels = c(0, 7, 14, 28, 42, 56, 70))
+  )
+
+
 ggplot(score_avg,
        aes(x = Day,
            y = mean_score,
            color = Group,
            shape = Group,
            group = Group)) +
-  geom_line(linewidth = 1.2) +
-  geom_point(size = 3) +
+  geom_line(linewidth = 1.3) +
+  geom_point(size = 4) +
   geom_errorbar(
     aes(ymin = mean_score - se,
         ymax = mean_score + se),
@@ -702,7 +731,6 @@ gsva_NOD_Rejscore <- signature_df
 write_xlsx(gsva_NOD_Rejscore, "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Supplementary Tables/Supp_Table8_RejScore_NODAllo_Early_vs_Late_Rejection.xlsx")
 
 # GSEA Analysis----
-
 # Paths to your saved results
 result_NOD_EarlyVsLate_path  <-  "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/NOD Islet Transplant/DESEQResults_EarlyvsLateRejection_NOD_DaysCombined.csv"
 
