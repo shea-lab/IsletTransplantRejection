@@ -14,18 +14,33 @@ library(ggnewscale)
 # MSIGDBR Pathways ----
 # Needs msigdbr package: https://cran.r-project.org/web/packages/msigdbr/vignettes/msigdbr-intro.html
 msigdbr_collections() 
-sets_hallmark <- msigdbr(species="Mus musculus", category="H") # Large df w/ categories
-pwl_hallmark <- split(sets_hallmark$gene_symbol, # Genes to split into pathways, by ensembl
-                      sets_hallmark$gs_name) # Pathway names
-kegg_gene_sets <- msigdbr(species="Mus musculus", subcollection ="CP:KEGG_LEGACY") # Large df w/ categories
-pwl_kegg <- split(kegg_gene_sets$gene_symbol, # Genes to split into pathways, by ensembl
-                  kegg_gene_sets$gs_name) # Pathway names
-CellTypeMSigDB_gene_sets <- msigdbr(species="Mus musculus", category="C8") # Large df w/ categories
-pwl_c8 <- split(CellTypeMSigDB_gene_sets$gene_symbol, # Genes to split into pathways, by ensembl
-                CellTypeMSigDB_gene_sets$gs_name)  # Pathway names
+# C8
+CellTypeMSigDB_gene_sets <- msigdbr(species="Mus musculus", category="C8")
+mm_c8_sets <- split(CellTypeMSigDB_gene_sets$gene_symbol, CellTypeMSigDB_gene_sets$gs_name)
+mm_c8_df <- data.frame(
+  gs_name = rep(names(mm_c8_sets), sapply(mm_c8_sets, length)),
+  gene_symbol = unlist(mm_c8_sets)
+)
 
-pwl_msigdbr <- c(pwl_hallmark, pwl_c8, pwl_kegg) # Compile them all
-length(pwl_msigdbr)
+
+# Hallmark
+hallmark <- msigdbr(species = "Mus musculus", category  = "H")
+mm_h_sets <- split(hallmark$gene_symbol, hallmark$gs_name)
+mm_h_df <- data.frame(
+  gs_name = rep(names(mm_h_sets), sapply(mm_h_sets, length)),
+  gene_symbol = unlist(mm_h_sets)
+)
+
+
+# KEGG
+kegg_all <- msigdbr(species="Mus musculus", category="C2", subcategory="CP:KEGG_LEGACY")
+mm_kegg_sets <- split(kegg_all$gene_symbol, kegg_all$gs_name)
+mm_kegg_df <- data.frame(
+  gs_name = rep(names(mm_kegg_sets), sapply(mm_kegg_sets, length)),
+  gene_symbol = unlist(mm_kegg_sets)
+)
+mm_all_df <- rbind(mm_c8_df, mm_h_df, mm_kegg_df)
+
 
 # 1. Load the Data ----
 
