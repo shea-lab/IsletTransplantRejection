@@ -214,12 +214,15 @@ dds_IsletTransplant_AlloVsSyn$Day <- factor(dds_IsletTransplant_AlloVsSyn$Day,
                                             levels = c(7, 14))  # baseline = 7
 
 unique(dds_IsletTransplant_AlloVsSyn$RecGender)
-# Check for Collinearuty
+
 cd <- as.data.frame(colData(dds_IsletTransplant_AlloVsSyn))
 # Check sample distribution
 lapply(cd[, c("Batch","LibraryPrep","logIEQ","Day","Group")], function(x) table(x, useNA="ifany"))
 table(cd$Group,cd$Day)
 
+#                   7 14
+#Control Syngeneic  5  4
+#Control Allogeneic 5  4
 
 ## DESEQ- Combined Timepoints ----
 design(dds_IsletTransplant_AlloVsSyn) <- ~ Batch +  Day + Group 
@@ -866,7 +869,7 @@ draw(
 
 # 5. Allo+Anti-CD40L-Rejection vs Acceptance-----
 
-# subset samples
+# subset samples of D7 and D14
 sel <- colData(dds_IsletTransplant)$Group %in% c("Acceptance","Rejection") & colData(dds_IsletTransplant)$Day %in% c(7,14)
 dds_IsletTransplant_RejVsAccep <- dds_IsletTransplant[, sel]
 
@@ -880,24 +883,15 @@ levels(dds_IsletTransplant_RejVsAccep$Group)
 
 dds_IsletTransplant_RejVsAccep$Day <- factor(dds_IsletTransplant_RejVsAccep$Day,
                                             levels = c(7, 14))  # baseline = 7
-levels(dds_IsletTransplant_RejVsTol$Day)
+levels(dds_IsletTransplant_RejVsAccep$Day)
 
 cd <- as.data.frame(colData(dds_IsletTransplant_RejVsAccep))
-mm <- model.matrix(~ Batch + LibraryPrep + Day + Group, data = cd)
-qr_mm <- qr(mm)
-
-kept    <- colnames(mm)[qr_mm$pivot[seq_len(qr_mm$rank)]]
-dropped <- if (qr_mm$rank < ncol(mm)) colnames(mm)[qr_mm$pivot[(qr_mm$rank+1):ncol(mm)]] else character()
-
-kept
-dropped
-
-boxplot(logIEQ ~ Group, data = colData(dds_IsletTransplant_RejVsAccep)) #Signficantly different between groups
-
 table(cd$Group,cd$Day)
+#            7 14
+#Acceptance 14 13
+#Rejection   2  3
 #Design Formula
-table(cd$Group,cd$Day)# Check the minimum number of samples in a group
-keep <- rowSums(counts(dds_IsletTransplant_RejVsAccep) >= 10) >= 5  # Smallest number in Rejection group
+keep <- rowSums(counts(dds_IsletTransplant_RejVsAccep) >= 10) >= 5  # Samples in Rejection Group
 dds_IsletTransplant_RejVsAccep <- dds_IsletTransplant_RejVsAccep[keep, ]
 design(dds_IsletTransplant_RejVsAccep) <- ~ Batch + Day + Group 
 dds_IsletTransplant_RejVsAccep <- DESeq(dds_IsletTransplant_RejVsAccep)
@@ -913,61 +907,6 @@ summary(res_REJvACCEP_ALL)
 ALL_REJVSACCEP  <- as.data.frame(res_REJvACCEP_ALL);  ALL_REJVSACCEP$gene  <- rownames(res_REJvACCEP_ALL)
 
 write.csv(ALL_REJVSACCEP, "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Rejection_Vs_Acceptance_aCD40L/DESEQResults_RejvsAccep_DaysCombined.csv", row.names = TRUE)
-# Function to create color mapping
-make_keyvals_fdr_fc_RejvsAccep <- function(df, q = 0.10, fc = 1,
-                                col_up = "#D62728", col_down = "#1F77B4", col_ns = "gray70") {
-  # valid stats (for coloring); everything else becomes NS
-  ok   <- !is.na(df$padj) & !is.na(df$log2FoldChange)
-  up   <- ok & df$padj < q & df$log2FoldChange >=  fc
-  down <- ok & df$padj < q & df$log2FoldChange <= -fc
-  # default color + label
-  key   <- rep(col_ns, nrow(df))
-  label <- rep("Not significant", nrow(df))
-  
-  # overwrite where significant
-  key[up]   <- col_up
-  key[down] <- col_down
-  
-  label[up]   <- paste0("Rejection-Upregulated")
-  label[down] <- paste0("Acceptance-Upregulated")
-  
-  names(key) <- label        # <- legend labels; no NAs
-  key
-}
-
-
-keyvals_REJVSACCEP  <- make_keyvals_fdr_fc_RejvsAccep(ALL_REJVSACCEP)
-
-# Thresholds
-q_cut  <- 0.10
-fc_cut <- 1
-selLab_ALL_REJVSACCEP  <- pick_labels(ALL_REJVSACCEP,  q_cut, fc_cut, 30)
-
-xmax_REJVSACCEP  <- max(2, ceiling(max(abs(ALL_REJVSACCEP$log2FoldChange),  na.rm=TRUE)))
-
-EnhancedVolcano(
-  ALL_REJVSACCEP,
-  lab           = ALL_REJVSACCEP$gene,
-  x             = "log2FoldChange",
-  y             = "padj",
-  pCutoff       = 0.10,          # FDR threshold
-  FCcutoff      = 1,
-  xlab          = expression("log"[2]*"(Fold Change)"),
-  ylab          = expression("-log"[10]*"(FDR)"),
-  title         = "Rejection vs Acceptance — Combined Timepoints",
-  subtitle      = paste0("FDR ≤0.10 & |LFC| ≥1 (n=", sum(ALL_REJVSACCEP$padj<0.10 & abs(ALL_REJVSACCEP$log2FoldChange)>=1, na.rm=TRUE), ")"),
-  xlim          = c(-xmax_REJVSACCEP, xmax_REJVSACCEP),
-  ylim = c(0,3),
-  boxedLabels   = TRUE,
-  pointSize     = 3,
-  labSize       = 6,
-  colAlpha      = 0.8,
-  drawConnectors= TRUE,
-  max.overlaps = 35,
-  colCustom     = keyvals_REJVSACCEP,
-  legendPosition= "right",
-  selectLab     = selLab_ALL_REJVSACCEP
-)
 
 
 ## Elastic Net Feature Selection----
@@ -979,7 +918,7 @@ sig_genes_REJvACCEP <- ALL_REJVSACCEP$gene[
 ]
 
 length(sig_genes_REJvACCEP)
-
+#711
 vsd <- vst(dds_IsletTransplant_RejVsAccep, blind = FALSE)
 mat <- assay(vsd)
 cd <- as.data.frame(colData(dds_IsletTransplant_RejVsAccep))
@@ -1028,8 +967,7 @@ for (a in alpha_grid) {
 cv_summary[order(cv_summary$cv_error), ]
 cv_summary
 
-best_alpha <- cv_summary$alpha[which.min(cv_summary$cv_error)]
-best_alpha<-0.3 #0,1 was best with cv error of 0.2339 but 0,3 chosen for sparser gene set (cv error:0.25356)
+best_alpha<-0.3 #0.1 was had lowest with lowest cv error  but 0,3 chosen for sparser gene set 
 
 # Stability selection
 set.seed(123)
@@ -1082,7 +1020,7 @@ freq_table <- data.frame(
 freq_table <- freq_table[order(freq_table$selection_frequency, decreasing = TRUE), ]
 stable_genes <- subset(freq_table, selection_frequency >= 0.7) #Select genes appearing atleast 70 percent of time
 stable_genes
-
+#25
 
 #Plot Heatmp and PCA using Selected Genes 
 stable_gene_names <- stable_genes$gene
@@ -1157,14 +1095,7 @@ ggplot(pca_df, aes(PC1, PC2, color = Group,, shape = Group)) +
   )
 
 
-
-
 ## GSEA Analysis----
-
-library(msigdbr)
-library(dplyr)
-
-# --- Collect each set and convert into 2-column (gs_name, gene_symbol) ---
 
 # C8
 CellTypeMSigDB_gene_sets <- msigdbr(species="Mus musculus", category="C8")
@@ -1192,7 +1123,7 @@ mm_kegg_df <- data.frame(
   gene_symbol = unlist(mm_kegg_sets)
 )
 
-# --- Final combined TERM2GENE data frame ---
+# inal combined TERM2GENE data frame 
 mm_all_df <- rbind(mm_c8_df, mm_h_df, mm_kegg_df)
 
 
@@ -1220,7 +1151,6 @@ gsea_results_ALL_REJVSACCEP <- GSEA(
   eps           = 0,
   seed          = TRUE,
   pAdjustMethod = "BH",
-  #keyType       = "SYMBOL",       # <- tell it explicitly
   TERM2GENE     = mm_all_df
 )
 gsea_results_ALL_REJVSACCEP <- as.data.frame(gsea_results_ALL_REJVSACCEP)
@@ -1243,35 +1173,21 @@ immune_master_REJVSACCEP <- unique(c(
   "KEGG_GRAFT_VERSUS_HOST_DISEASE",
   "KEGG_CELL_ADHESION_MOLECULES_CAMS",
   "KEGG_ADIPOCYTOKINE_SIGNALING_PATHWAY",
-  #"HE_LIM_SUN_FETAL_LUNG_C2_NEUTROPHIL_CELL",
   "HE_LIM_SUN_FETAL_LUNG_C2_S100A12_HI_CLASSICAL_MONOCYTE",
-  #"HE_LIM_SUN_FETAL_LUNG_C4_NKT1_CELL",
-  #"DESCARTES_MAIN_FETAL_CCL19_CCL21_POSITIVE_CELLS",
   "DESCARTES_FETAL_PANCREAS_CCL19_CCL21_POSITIVE_CELLS",
   "HE_LIM_SUN_FETAL_LUNG_C2_CXCL9_POS_MACROPHAGE_CELL",
-  #"HALLMARK_TGF_BETA_SIGNALING",
   #Downregulated
   "AIZARANI_LIVER_C6_KUPFFER_CELLS_2",
   "HE_LIM_SUN_FETAL_LUNG_C2_APOE_POS_M2_MACROPHAGE_CELL",
-  #"TRAVAGLINI_LUNG_MACROPHAGE_CELL",
-  #"AIZARANI_LIVER_C2_KUPFFER_CELLS_1",
-  #"AIZARANI_LIVER_C23_KUPFFER_CELLS_3",
   "KEGG_ANTIGEN_PROCESSING_AND_PRESENTATION",
   "TRAVAGLINI_LUNG_NONCLASSICAL_MONOCYTE_CELL",
-  #"TRAVAGLINI_LUNG_CLASSICAL_MONOCYTE_CELL",
   "DESCARTES_FETAL_LIVER_MYELOID_CELLS",
-  #"DESCARTES_MAIN_FETAL_ANTIGEN_PRESENTING_CELLS",
-  #"SU_HO_CONV_CENT_CHONDROSARCOMA_LEUKOCYTE_C1_M2_MACROPHAGE",
-  #"DURANTE_ADULT_OLFACTORY_NEUROEPITHELIUM_NK_CELLS",
   "KEGG_FC_GAMMA_R_MEDIATED_PHAGOCYTOSIS",
-  #"DESCARTES_FETAL_THYMUS_ANTIGEN_PRESENTING_CELLS",
   "HAY_BONE_MARROW_DENDRITIC_CELL",
   "HALLMARK_PEROXISOME",
-  #"KEGG_PEROXISOME",
   "HALLMARK_FATTY_ACID_METABOLISM",
   "AIZARANI_LIVER_C1_NK_NKT_CELLS_1"
-  #"KEGG_PURINE_METABOLISM",
-  #"KEGG_PYRIMIDINE_METABOLISM"
+
   
 ))
 
@@ -1310,9 +1226,8 @@ ggplot(plot_df, aes(x = NES, y = ID, size = neglog10_padj, color = NES)) +
     axis.text.x = element_text(size = 12),
     plot.title = element_text(face = "bold", hjust = 0.5)
   )
+
 ## Islet Single Cell Mapping----
-
-
 
 IsletScRNA = readRDS("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Islet ScRNASeq/islet_graft_seurat_v8.rds")
 ### Elastic Net Score ----
@@ -1447,14 +1362,11 @@ dds_IsletTransplant_AccepVsSyn$Day <- factor(dds_IsletTransplant_AccepVsSyn$Day,
 levels(dds_IsletTransplant_AccepVsSyn$Day)
 
 cd <- as.data.frame(colData(dds_IsletTransplant_AccepVsSyn))
-mm <- model.matrix(~ Batch + LibraryPrep + Day + Group, data = cd)
-qr_mm <- qr(mm)
-kept    <- colnames(mm)[qr_mm$pivot[seq_len(qr_mm$rank)]]
-dropped <- if (qr_mm$rank < ncol(mm)) colnames(mm)[qr_mm$pivot[(qr_mm$rank+1):ncol(mm)]] else character()
-
-kept
-dropped
 table(cd$Group,cd$Day)# Check the minimum number of samples in a group
+
+#                   7 14 28 42 56 70
+#Control Syngeneic  5  4  5  5  5  5
+#Acceptance        14 13 12 12 13 11
 
 keep <- rowSums(counts(dds_IsletTransplant_AccepVsSyn) >= 10) >= 4  # Smallest number in Syngeneic group
 dds_IsletTransplant_AccepVsSyn <- dds_IsletTransplant_AccepVsSyn[keep, ]
@@ -2287,14 +2199,10 @@ dds_IsletTransplant_IS_RejVsAllo$Day <- factor(dds_IsletTransplant_IS_RejVsAllo$
 levels(dds_IsletTransplant_IS_RejVsAllo$Day)
 
 cd <- as.data.frame(colData(dds_IsletTransplant_IS_RejVsAllo))
-mm <- model.matrix(~ Batch + LibraryPrep + Day + Group, data = cd)
-qr_mm <- qr(mm)
-
-kept    <- colnames(mm)[qr_mm$pivot[seq_len(qr_mm$rank)]]
-dropped <- if (qr_mm$rank < ncol(mm)) colnames(mm)[qr_mm$pivot[(qr_mm$rank+1):ncol(mm)]] else character()
-kept
-dropped
 table(cd$Group,cd$Day)
+#                   7 14
+#Control Allogeneic 5  4
+#Rejection          2  3
 
 #Check if logIEQ varies systemically with Group or Day
 boxplot(logIEQ ~ Group, data = colData(dds_IsletTransplant_IS_RejVsAllo)) #Signficantly different between groups
