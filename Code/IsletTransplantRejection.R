@@ -891,7 +891,7 @@ table(cd$Group,cd$Day)
 #Acceptance 14 13
 #Rejection   2  3
 #Design Formula
-keep <- rowSums(counts(dds_IsletTransplant_RejVsAccep) >= 10) >= 5  # Samples in Rejection Group
+keep <- rowSums(counts(dds_IsletTransplant_RejVsAccep) >= 10) >= 5  # Total Samples in Rejection group used to account for group imbalance
 dds_IsletTransplant_RejVsAccep <- dds_IsletTransplant_RejVsAccep[keep, ]
 design(dds_IsletTransplant_RejVsAccep) <- ~ Batch + Day + Group 
 dds_IsletTransplant_RejVsAccep <- DESeq(dds_IsletTransplant_RejVsAccep)
@@ -1344,7 +1344,6 @@ ggplot(plot_df, aes(x = celltype, y = score, fill = signature)) +
 
 # 6. Allo Acceptance Vs Syngeneic-----
 
-
 sel <- colData(dds_IsletTransplant)$Group %in% c("Control Syngeneic","Acceptance")  & colData(dds_IsletTransplant)$Day %in% c(7,14,28,42,56,70)
 #IS- Immunosuppressed
 dds_IsletTransplant_AccepVsSyn <- dds_IsletTransplant[, sel]
@@ -1469,9 +1468,7 @@ EnhancedVolcano(
   selectLab     = selLab_ALL_ACCEPVSSYN
 )
 
-summary(ALL_ACCEPVSSYN)
-
-## Heatmap and PCA-DE Genes----
+###PCA Analysis-DE Genes----
 
 sig_genes_ACCEPvSYN <- ALL_ACCEPVSSYN$gene[
   !is.na(ALL_ACCEPVSSYN$padj) &
@@ -1514,124 +1511,7 @@ annotation_colors <- list(
 )
 
 mat_bc_AccepVsSyn <- mat_bc[sig_genes_ACCEPvSYN,]
-# row-scale genes
-mat_bc_AccepVsSyn_scaled <- t(scale(t(mat_bc_AccepVsSyn)))
-# remove genes with zero variance if any
-mat_bc_AccepVsSyn_scaled <- mat_bc_AccepVsSyn_scaled[complete.cases(mat_bc_AccepVsSyn_scaled), , drop = FALSE]
 
-samples_AccepVsSyn<-colnames(dds_IsletTransplant_AccepVsSyn)
-# annotation
-anno_col <- anno_col[samples_AccepVsSyn, , drop = FALSE]
-
-immune_genes_plot <- c(
-  "Acod1",
-  "Arg1",
-  "Arg2",
-  "Art2b",
-  "Bst1",
-  "Ccl3",
-  "Ccl4",
-  "Cd14",
-  "Cd274",
-  "Cd300lf",
-  "Cd38",
-  "Clec4e",
-  "Csf2",
-  "Csf3",
-  "Csf3r",
-  "Cxcl1",
-  "Cxcl2",
-  "Cxcl3",
-  "Cxcr2",
-  "Flicr",
-  "Fpr1",
-  "Fpr2",
-  "Gbp5",
-  "Gpr15",
-  "Gpr84",
-  "Hcar2",
-  "Hp",
-  "Ier3",
-  "Ifitm1",
-  "Il12a",
-  "Il17a",
-  "Il17f",
-  "Il1a",
-  "Il1b",
-  "Il18rap",
-  "Il22",
-  "Il23a",
-  "Kcna3",
-  "Lcn2",
-  "Lef1",
-  "Ly6c2",
-  "Marco",
-  "Mcemp1",
-  "Mmp8",
-  "Nlrp3",
-  "Nos2",
-  "Prok2",
-  "Slamf6",
-  "Themis",
-  "Tnf",
-  "Tox",
-  "Trem1"
-)
-library(ComplexHeatmap)
-library(circlize)
-at_idx <- which(rownames(mat_bc_AccepVsSyn_scaled) %in% immune_genes_plot)
-lab <- rownames(mat_bc_AccepVsSyn_scaled)[at_idx]
-
-ha_col <- HeatmapAnnotation(
-  df = anno_col,
-  col = annotation_colors
-)
-ra <- rowAnnotation(
-  mark = anno_mark(
-    at = at_idx,
-    labels = lab,
-    side = "right",
-    labels_gp = gpar(fontsize = 10, fontface = "italic"),
-    link_width = unit(8, "mm"),
-    link_height = unit(2, "mm")
-  )
-)
-col_fun <- colorRamp2(
-  seq(-2, 2, length.out = 100),
-  colorRampPalette(c("navy", "white", "firebrick3"))(100)
-)
-
-ht <- Heatmap(
-  mat_bc_AccepVsSyn_scaled,
-  name = "Z-score",
-  top_annotation = ha_col,
-  right_annotation = ra,
-  col = col_fun,
-  cluster_rows = TRUE,
-  cluster_columns = TRUE,
-  show_row_names = FALSE,
-  show_column_names = FALSE,
-  column_title = paste0(
-    "Allogeneic Acceptance vs Syngeneic (n = ",
-    nrow(mat_bc_AccepVsSyn_scaled), ")"
-  ),
-  heatmap_legend_param = list(
-    title = "Expression",
-    legend_direction = "vertical"
-  )
-)
-
-pdf("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/AcceptanceVsSyngeneic/Figures/SigDE_AccepVsSyn_Heatmap.pdf", width = 7, height = 9)
-
-draw(
-  ht,
-  heatmap_legend_side = "right",
-  annotation_legend_side = "right"
-)
-
-dev.off()
-
-#PCA Analysis
 mat_pca <- t(mat_bc_AccepVsSyn)
 pca <- prcomp(mat_pca, scale. = TRUE)
 pca_df <- data.frame(
@@ -1664,8 +1544,6 @@ ggplot(pca_df, aes(PC1, PC2, color = Group,, shape = Group)) +
     axis.line = element_line(color = "black", linewidth = 1),
     panel.grid = element_blank()
   )
-
-
 
 
 
@@ -1711,7 +1589,6 @@ immune_master_ACCEPVSSYN <- unique(c(
   "HAY_BONE_MARROW_IMMATURE_NEUTROPHIL",
   "TRAVAGLINI_LUNG_CLASSICAL_MONOCYTE_CELL",
   "HE_LIM_SUN_FETAL_LUNG_C2_CXCL9_POS_MACROPHAGE_CELL",
-  #"SU_HO_CONV_CENT_CHONDROSARCOMA_LEUKOCYTE_C0_M1_MACROPHAGE",
   "TRAVAGLINI_LUNG_IGSF21_DENDRITIC_CELL",
   "FAN_OVARY_CL4_T_LYMPHOCYTE_NK_CELL_1",
   "HALLMARK_INTERFERON_GAMMA_RESPONSE",
@@ -1800,16 +1677,14 @@ vsd <- vst(dds_IsletTransplant_AccepVsSyn, blind = FALSE)
 
 mat <- assay(vsd)
 
-# Remove only sequencing batch
+# Remove only sequencing batch effect
 cd <- as.data.frame(colData(dds_IsletTransplant_AccepVsSyn))
 
 cd$Day <- factor(cd$Day, levels = c(7,14,28,42,56,70))
 cd$Group <- factor(cd$Group, levels = c("Control Syngeneic", "Acceptance"))
-design_gsva <- model.matrix(~ Day, data = cd)
 mat_gsva <- limma::removeBatchEffect(
   mat,
-  batch = vsd$Batch#,
-  #design = design_gsva
+  batch = vsd$Batch
 )
 
 cd$MouseID <- paste(cd$Cohort, cd$Animal, sep = "_")
@@ -2044,141 +1919,6 @@ library(writexl)
 write_xlsx(gsva_export,
           "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Supplementary Tables/Supp_Tab7_ Allo_Acceptance_vs_Syn_LongitudinalGSVAScores.xlsx")
 
-### Allo Accep vs Syn Score----
-ALL_ACCEPVSSYN<-read.csv("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/AcceptanceVsSyngeneic/DESEQResults__AccepVsSyn_DaysCombined.csv", row.names = 1)
-
-
-# VST normalization
-vsd <- vst(dds_IsletTransplant_AccepVsSyn, blind = FALSE)
-
-mat <- assay(vsd)
-
-# Remove only sequencing batch
-cd <- as.data.frame(colData(dds_IsletTransplant_AccepVsSyn))
-design_gsva <- model.matrix(~ Day + Group + Day:Group, data = cd)
-mat_enet <- limma::removeBatchEffect(
-  mat,
-  batch = vsd$Batch,
-  design = design_gsva
-)
-up_genes_AccepVsSyn <- ALL_ACCEPVSSYN$gene[
-  !is.na(ALL_ACCEPVSSYN$padj) &
-    ALL_ACCEPVSSYN$padj <= 0.05 &
-    ALL_ACCEPVSSYN$log2FoldChange >= 1
-]
-
-down_genes_AccepVsSyn <- ALL_ACCEPVSSYN$gene[
-  !is.na(ALL_ACCEPVSSYN$padj) &
-    ALL_ACCEPVSSYN$padj <= 0.05 &
-    ALL_ACCEPVSSYN$log2FoldChange <= -1
-]
-
-gsva_par_sig <- gsvaParam(
-  mat_enet,
-  list(
-    Up = up_genes_AccepVsSyn,
-    Down = down_genes_AccepVsSyn
-  ),
-  kcdf = "Gaussian",
-  minSize = 5
-)
-
-sig_scores <- gsva(gsva_par_sig)
-
-signature_df <- data.frame(
-  Sample = colnames(sig_scores),
-  GSVA_Up = as.numeric(sig_scores["Up", ]),
-  GSVA_Down = as.numeric(sig_scores["Down", ])
-)
-
-signature_df$SignatureScore <- signature_df$GSVA_Up - signature_df$GSVA_Down
-signature_df <- cbind(signature_df, cd[signature_df$Sample, ])
-
-score_avg <- signature_df %>%
-  dplyr::group_by(Group, Day) %>%
-  dplyr::summarise(
-    mean_score = mean(SignatureScore, na.rm = TRUE),
-    se = sd(SignatureScore, na.rm = TRUE) / sqrt(dplyr::n()),
-    .groups = "drop"
-  )
-
-pvals_score <- signature_df %>%
-  dplyr::group_by(Day) %>%
-  dplyr::summarise(
-    p_value = {
-      df <- dplyr::cur_data()
-      if (length(unique(df$Group)) < 2) {
-        NA_real_
-      } else {
-        tryCatch(
-          t.test(SignatureScore ~ Group, data = df, var.equal = FALSE)$p.value,
-          error = function(e) NA_real_
-        )
-      }
-    },
-    .groups = "drop"
-  ) %>%
-  dplyr::mutate(
-    signif_label = dplyr::case_when(
-      is.na(p_value) ~ "",
-      p_value <= 1e-4 ~ "****",
-      p_value <= 1e-3 ~ "***",
-      p_value <= 1e-2 ~ "**",
-      p_value <= 5e-2 ~ "*",
-      TRUE ~ ""
-    )
-  )
- 
-label_pos_score <- signature_df %>%
-  dplyr::group_by(Day) %>%
-  dplyr::summarise(
-    ymin = min(SignatureScore, na.rm = TRUE),
-    ymax = max(SignatureScore, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  dplyr::mutate(
-    span = dplyr::if_else(ymax > ymin, ymax - ymin, 0.2),
-    y_pos = ymax - 0.05 * span
-  ) %>%
-  dplyr::select(Day, y_pos)
-
-sig_score_df <- pvals_score %>%
-  dplyr::left_join(label_pos_score, by = "Day")
-
-ggplot(score_avg,
-       aes(x = Day,
-           y = mean_score,
-           color = Group,
-           shape = Group,
-           group = Group)) +
-  geom_line(linewidth = 1.2) +
-  geom_point(size = 3) +
-  geom_errorbar(
-    aes(ymin = mean_score - se,
-        ymax = mean_score + se),
-    width = 0.5
-  ) +
-  geom_text(
-    data = sig_score_df,
-    aes(x = Day, y = y_pos, label = signif_label),
-    inherit.aes = FALSE,
-    size = 7
-  ) +
-  scale_color_manual(values = c(
-    "Control Syngeneic" = "#2E6F40",
-    "Acceptance" = "#064273"
-  )) +
-  scale_shape_manual(values = c(
-    "Control Syngeneic" = 17,
-    "Acceptance" = 16
-  )) +
-  theme_classic(base_size = 16) +
-  labs(
-    x = "Days Post Transplant",
-    y = "Allo Acceptance vs Syn Score",
-    title = "Allogeneic Acceptance vs Syngeneic Score Over Time"
-  )
-
 # 7.Allo+Anti-CD40L Rejection vs Allo -----
 
 # subset samples
@@ -2208,7 +1948,7 @@ table(cd$Group,cd$Day)
 boxplot(logIEQ ~ Group, data = colData(dds_IsletTransplant_IS_RejVsAllo)) #Signficantly different between groups
 
 #Design Formula
-keep <- rowSums(counts(dds_IsletTransplant_IS_RejVsAllo) >= 10) >= 2  # Smallest number of samples in a group
+keep <- rowSums(counts(dds_IsletTransplant_IS_RejVsAllo) >= 10) >= 2   # Smallest number of samples in a group
 dds_IsletTransplant_IS_RejVsAllo <- dds_IsletTransplant_IS_RejVsAllo[keep, ]
 
 design(dds_IsletTransplant_IS_RejVsAllo) <- ~ Batch + Day + Group 
@@ -2289,7 +2029,7 @@ EnhancedVolcano(
   selectLab     = selLab_ALL_IS_REJVSALLO
 )
 
-## Heatmap and PCA-DE Genes----
+## #PCA Analysis-DE Genes----
 
 sig_genes_IS_REJVSALLO<- ALL_IS_REJVSALLO$gene[
   !is.na(ALL_IS_REJVSALLO$padj) &
@@ -2298,7 +2038,7 @@ sig_genes_IS_REJVSALLO<- ALL_IS_REJVSALLO$gene[
 ]
 
 length(sig_genes_IS_REJVSALLO)
-
+#19
 
 vsd <- vst(dds_IsletTransplant_IS_RejVsAllo, blind = FALSE)
 mat <- assay(vsd)
@@ -2328,46 +2068,7 @@ annotation_colors <- list(
 )
 
 mat_bc_RejVsAllo <- mat_bc[sig_genes_IS_REJVSALLO,]
-# row-scale genes
-mat_bc_RejVsAllo_scaled <- t(scale(t(mat_bc_RejVsAllo)))
-# remove genes with zero variance if any
-mat_bc_RejVsAllo_scaled <- mat_bc_RejVsAllo_scaled[complete.cases(mat_bc_RejVsAllo_scaled), , drop = FALSE]
 
-samples_RejVsAllo<-colnames(dds_IsletTransplant_IS_RejVsAllo)
-# annotation
-anno_col <- anno_col[samples_RejVsAllo, , drop = FALSE]
-
-
-col_fun <- colorRamp2(
-  seq(-2, 2, length.out = 100),
-  colorRampPalette(c("navy", "white", "firebrick3"))(100)
-)
-ha_col <- HeatmapAnnotation(
-  df = anno_col,
-  col = annotation_colors
-)
-ht <- Heatmap(
-  mat_bc_RejVsAllo_scaled,
-  name = "Z-score",
-  top_annotation = ha_col,
-  col = col_fun,
-  cluster_rows = TRUE,
-  cluster_columns = TRUE,
-  show_row_names = TRUE,
-  show_column_names = FALSE,
-  column_title = paste0(
-    "Allogeneic Rejection vs Control Allogeneic (n = ",
-    nrow(mat_bc_RejVsAllo_scaled), ")"
-  ),
-  heatmap_legend_param = list(
-    title = "Expression",
-    legend_direction = "vertical"
-  )
-)
-
-draw(ht)
-
-#PCA Analysis
 mat_pca <- t(mat_bc_RejVsAllo)
 pca <- prcomp(mat_pca, scale. = TRUE)
 pca_df <- data.frame(
@@ -2403,12 +2104,7 @@ ggplot(pca_df, aes(PC1, PC2, color = Group,, shape = Group)) +
     panel.grid = element_blank()
   )
 
-
-
-
 ## GSEA Analysis----
-
-# --- Collect each set and convert into 2-column (gs_name, gene_symbol) ---
 
 # C8
 CellTypeMSigDB_gene_sets <- msigdbr(species="Mus musculus", category="C8")
@@ -2436,7 +2132,6 @@ mm_kegg_df <- data.frame(
   gene_symbol = unlist(mm_kegg_sets)
 )
 
-# --- Final combined TERM2GENE data frame ---
 mm_all_df <- rbind(mm_c8_df, mm_h_df, mm_kegg_df)
 
 
@@ -2463,13 +2158,12 @@ gsea_results_ISREJVSALLO <- GSEA(
   eps           = 0,
   seed          = TRUE,
   pAdjustMethod = "BH",
-  #keyType       = "SYMBOL",       # <- tell it explicitly
   TERM2GENE     = mm_all_df
 )
 gsea_results_ISREJVSALLO <- as.data.frame(gsea_results_ISREJVSALLO)
 
 
-# Full results Combined Timepoins
+# Full results Combined Timepoints
 write.csv(gsea_results_ISREJVSALLO,
           "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Results/Rejection_Vs_Allogeneic/GSEAResults_ISRejectionVsAllogeneic_DaysCombined.csv",
           row.names = FALSE)
@@ -2515,7 +2209,6 @@ immune_master_ISREJVSALLO <- unique(c(
 
 # Helper to standardize clusterProfiler GSEA columns
 coerce_gsea_tbl <- function(df, day_label){
-  # try common column names: Description/ID/pathway/setName; p.adjust/padj
   gs  <- if ("Description" %in% names(df)) df$Description else if ("ID" %in% names(df)) df$ID else if ("pathway" %in% names(df)) df$pathway else if ("setName" %in% names(df)) df$setName else rownames(df)
   pad <- if ("p.adjust"   %in% names(df)) df$p.adjust   else if ("padj" %in% names(df)) df$padj else df$pval
   tibble(
