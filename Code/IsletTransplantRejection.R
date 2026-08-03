@@ -27,6 +27,7 @@ library(clusterProfiler)
 library(gghalves)
 library(circlize)
 library(ComplexHeatmap)
+library(tidyr)
 
 
 
@@ -105,7 +106,7 @@ rownames(combined_counts) <- combined_counts$Row.names
 combined_counts$Row.names <- NULL
 
 # Identify the samples to keep (not "Technical Rejection")
-samples_to_keep <- meta_combined$Sample[meta_combined$Group != "Technical Rejection"]
+samples_to_keep <- meta_combined$Samples[meta_combined$Group != "Technical Rejection"]
 
 # Filter the meta_combined data
 meta_combined <- meta_combined[meta_combined$Group != "Technical Rejection", ]
@@ -376,40 +377,102 @@ remove_genes <- c("Xist", "Eif2s3x", "Kdm6a")
 
 # remove selected genes
 stable_gene_names <- setdiff(stable_gene_names, remove_genes)
+
+
 mat_stable <- mat_enet[stable_gene_names, , drop = FALSE]
 mat_scaled <- t(scale(t(mat_stable)))
-annotation_col <- data.frame(
-  Day = cd$Day,
-  Group = cd$Group
-)
-rownames(annotation_col) <- colnames(mat_scaled)
 
-rownames(mat_scaled)
-annotation_colors <- list(
-  Group = c(
-    "Control Allogeneic" = "#FF2400",   # Scarlet
-    "Control Syngeneic" = "#2E6F40"     # green
-  ),
-  Day = c(
-    "7" = "#F28E6B",
-    "14" = "#6FA287"
+
+# Column annotation
+annotation_col <- data.frame(
+  Day = factor(cd$Day, levels = c("7", "14")),
+  Group = factor(
+    cd$Group,
+    levels = c("Control Syngeneic", "Control Allogeneic")
   )
 )
 
-pheatmap(
-  mat_scaled,
-  annotation_col = annotation_col,
-  annotation_colors = annotation_colors,
-  cluster_rows = TRUE,
-  cluster_cols = TRUE,
-  show_rownames = TRUE,
-  show_colnames = FALSE,
-  fontsize = 14,
-  fontsize_row = 12,
-  fontsize_col = 10,
-  color = colorRampPalette(c("navy","white","firebrick3"))(100),
-  main = "Allogeneic Vs Syngeneic Signature"
+rownames(annotation_col) <- colnames(mat_scaled)
+
+stopifnot(
+  identical(rownames(annotation_col), colnames(mat_scaled))
 )
+
+# Top annotation
+ha <- HeatmapAnnotation(
+  df = annotation_col,
+  col = list(
+    Group = c(
+      "Control Allogeneic" = "#FF2400",
+      "Control Syngeneic" = "#2E6F40"
+    ),
+    Day = c(
+      "7" = "#F28E6B",
+      "14" = "#6FA287"
+    )
+  ),
+  
+  border = TRUE,                # <-- adds borders around annotation cells
+  
+  gp = grid::gpar(
+    col = "grey80",              # border color
+    lwd = 0.5                   # border width
+  ),
+  
+  annotation_name_gp = grid::gpar(fontsize = 12)
+)
+
+Heatmap(
+  mat_scaled,
+  name = "Z-score",
+  
+  top_annotation = ha,
+  
+  # Separate Day 7 and Day 14
+  column_split = annotation_col$Day,
+  
+  # Cluster independently within each day
+  cluster_columns = TRUE,
+  cluster_column_slices = FALSE,
+  
+  column_title = c("Day 7", "Day 14"),
+  
+  # Cluster genes
+  cluster_rows = TRUE,
+  
+  clustering_distance_columns = "euclidean",
+  clustering_method_columns = "complete",
+  
+  clustering_distance_rows = "euclidean",
+  clustering_method_rows = "complete",
+  
+  show_column_names = FALSE,
+  show_row_names = TRUE,
+  
+  row_names_gp = grid::gpar(fontsize = 12),
+  column_title_gp = grid::gpar(
+    fontsize = 14,
+    fontface = "bold"
+  ),
+  
+  col =  colorRampPalette(
+    c("navy", "white", "firebrick3")
+  )(100),
+  
+  # Borders around individual heatmap cells
+  rect_gp = grid::gpar(
+    col = "grey80",
+    lwd = 0.5
+  ),
+  
+  # Gap between Day 7 and Day 14
+  column_gap = grid::unit(4, "mm"),
+  
+  heatmap_legend_param = list(
+    title = "Expression\nZ-score"
+  )
+)
+
 
 #PCA Analysis
 mat_pca <- t(mat_stable)
@@ -444,6 +507,196 @@ ggplot(pca_df, aes(PC1, PC2, color = Group,, shape = Group)) +
     axis.line = element_line(color = "black", linewidth = 1),
     panel.grid = element_blank()
   )
+
+### Gene Expressions Over Time----
+
+
+vsd <- vst(dds_IsletTransplant_AlloVsSyn, blind = FALSE)
+mat <- assay(vsd)
+cd <- as.data.frame(colData(dds_IsletTransplant_AlloVsSyn))
+design_temporal <- model.matrix(
+  ~ Group * Day,
+  data = cd
+)
+
+mat_temporal <- limma::removeBatchEffect(
+  mat,
+  batch = cd$Batch,
+  design = design_temporal
+)
+
+mat_plot <- mat_temporal[
+  stable_gene_names,
+  ,
+  drop = FALSE
+]
+
+# Check that metadata and expression samples align
+stopifnot(
+  identical(colnames(mat_plot), rownames(cd))
+)
+
+
+#  Convert expression matrix to long format
+plot_df <- as.data.frame(mat_plot) %>%
+  rownames_to_column("Gene") %>%
+  pivot_longer(
+    cols = -Gene,
+    names_to = "Sample",
+    values_to = "Expression"
+  ) %>%
+  left_join(
+    cd %>%
+      rownames_to_column("Sample") %>%
+      select(Sample, Day, Group),
+    by = "Sample"
+  ) %>%
+  mutate(
+    Day = factor(
+      Day,
+      levels = c("7", "14")
+    ),
+    Group = factor(
+      Group,
+      levels = c(
+        "Control Syngeneic",
+        "Control Allogeneic"
+      )
+    )
+  )
+
+# Check for missing metadata
+stopifnot(
+  !any(is.na(plot_df$Day)),
+  !any(is.na(plot_df$Group))
+)
+
+
+gene_trajectory_plot <- ggplot(
+  plot_df,
+  aes(
+    x = Day,
+    y = Expression,
+    color = Group,
+    group = Group
+  )
+) +
+  
+  # Individual samples
+  geom_point(
+    aes(
+      shape = Group,
+      fill = Group
+    ),
+    position = position_jitter(
+      width = 0.06,
+      height = 0
+    ),
+    size = 2,
+    alpha = 0.55,
+    stroke = 0.5
+  ) +
+  
+  # Group mean connecting Day 7 and Day 14
+  stat_summary(
+    fun = mean,
+    geom = "line",
+    linewidth = 0.9
+  ) +
+  
+  # Group mean symbols
+  stat_summary(
+    aes(
+      shape = Group,
+      fill = Group
+    ),
+    fun = mean,
+    geom = "point",
+    size = 3.3,
+    stroke = 0.7
+  ) +
+  
+  # Mean ± SEM
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    width = 0.10,
+    linewidth = 0.6
+  ) +
+  
+  facet_wrap(
+    ~ Gene,
+    scales = "free_y",
+    ncol = 4
+  ) +
+  
+  scale_color_manual(
+    values = c(
+      "Control Syngeneic" = "#2E6F40",
+      "Control Allogeneic" = "#FF2400"
+    )
+  ) +
+  
+  scale_fill_manual(
+    values = c(
+      "Control Syngeneic" = "#2E6F40",
+      "Control Allogeneic" = "#FF2400"
+    )
+  ) +
+  
+  scale_shape_manual(
+    values = c(
+      "Control Syngeneic" = 24,  # upward triangle
+      "Control Allogeneic" = 25  # downward triangle
+    )
+  ) +
+  
+  labs(
+    title = "Temporal Expression- Allogeneic vs Syngeneic Signature",
+    x = "Day post-transplant",
+    y = "Variance-stabilized (VST) expression",
+    color = "Group",
+    fill = "Group",
+    shape = "Group"
+  ) +
+  
+  theme_classic(base_size = 12) +
+  
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      hjust = 0.5,
+      size = 14
+    ),
+    strip.text = element_text(
+      face = "bold.italic",
+      colour = "black",
+      size = 12
+    ),
+    
+    strip.background = element_rect(
+      fill = "transparent",
+      colour = "black",
+      linewidth = 0.6
+    ),
+    
+    panel.border = element_rect(
+      colour = "black",
+      fill = NA,
+      linewidth = 0.5
+    ),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text  = element_text(size = 12),
+    legend.position = "bottom",
+    panel.spacing = grid::unit(0.8, "lines")
+  )
+
+gene_trajectory_plot
+
+
 
 
 
@@ -867,6 +1120,361 @@ draw(
   padding = unit(c(30, 40, 10, 10), "mm")  # top, right, bottom, left
 )
 
+
+## Auto-Allo Genes Signature Cross Preservation----
+
+# subset samples of D7 and D14
+sel <- colData(dds_IsletTransplant)$Group %in% c("Control Allogeneic","Control Syngeneic") & colData(dds_IsletTransplant)$Day %in% c(7,14)
+dds_IsletTransplant_AlloVsSyn <- dds_IsletTransplant[, sel]
+dds_IsletTransplant_AlloVsSyn$RecGender <- factor(dds_IsletTransplant_AlloVsSyn$RecGender)
+dds_IsletTransplant_AlloVsSyn$Batch       <- factor(dds_IsletTransplant_AlloVsSyn$Batch)
+dds_IsletTransplant_AlloVsSyn$LibraryPrep <- factor(dds_IsletTransplant_AlloVsSyn$LibraryPrep)
+dds_IsletTransplant_AlloVsSyn$Group <- factor(
+  dds_IsletTransplant_AlloVsSyn$Group,
+  levels = c("Control Syngeneic", "Control Allogeneic")  # order sets baseline
+)
+
+dds_IsletTransplant_AlloVsSyn$Day <- factor(dds_IsletTransplant_AlloVsSyn$Day,
+                                            levels = c(7, 14))  # baseline = 7
+
+
+design(dds_IsletTransplant_AlloVsSyn) <- ~ Batch +  Day + Group 
+dds_IsletTransplant_AlloVsSyn <- DESeq(dds_IsletTransplant_AlloVsSyn)
+resultsNames(dds_IsletTransplant_AlloVsSyn)
+
+
+vsd <- vst(dds_IsletTransplant_AlloVsSyn, blind = FALSE)
+mat <- assay(vsd)
+cd <- as.data.frame(colData(dds_IsletTransplant_AlloVsSyn))
+design_enet <- model.matrix(~ Group, data = cd)
+mat_enet <- limma::removeBatchEffect(
+  mat,
+  batch = vsd$Batch,
+  covariates = 
+    model.matrix(~ Day, data = cd)[, -1, drop = FALSE]
+  ,
+  design = design_enet
+)
+
+
+
+#Plot Heatmp and PCA using Selected Genes 
+Auto_allo_signature <- c("Rsph10b","S1pr5","Erdr1","Pla2g4b","Clec2g","Ctsg","Syce1","Fndc7",
+                         "Epgn","Tmem132e","Stkld1","Osbpl6","Sycp3")
+setdiff(Auto_allo_signature, rownames(mat_enet))
+mat_stable <- mat_enet[Auto_allo_signature, , drop = FALSE]
+mat_scaled <- t(scale(t(mat_stable)))
+annotation_col <- data.frame(
+  Day = cd$Day,
+  Group = cd$Group
+)
+rownames(annotation_col) <- colnames(mat_scaled)
+
+
+# Column annotation
+annotation_col <- data.frame(
+  Day = factor(cd$Day, levels = c("7", "14")),
+  Group = factor(
+    cd$Group,
+    levels = c("Control Syngeneic", "Control Allogeneic")
+  )
+)
+
+rownames(annotation_col) <- colnames(mat_scaled)
+
+stopifnot(
+  identical(rownames(annotation_col), colnames(mat_scaled))
+)
+
+# Top annotation
+ha <- HeatmapAnnotation(
+  df = annotation_col,
+  col = list(
+    Group = c(
+      "Control Syngeneic" = "forestgreen",
+      "Control Allogeneic" = "red"
+    ),
+    Day = c(
+      "7" = "#F28E6B",
+      "14" = "#6FA287"
+    )
+  ),
+  
+  border = TRUE,                # <-- adds borders around annotation cells
+  
+  gp = grid::gpar(
+    col = "grey80",              # border color
+    lwd = 0.5                   # border width
+  ),
+  
+  annotation_name_gp = grid::gpar(fontsize = 12)
+)
+
+
+Heatmap(
+  mat_scaled,
+  name = "Z-score",
+  top_annotation = ha,
+  # Separate Day 7 and Day 14
+  column_split = annotation_col$Day,
+  # Cluster independently within each day
+  cluster_columns = TRUE,
+  cluster_column_slices = FALSE,
+  column_title = c("Day 7", "Day 14"),
+  # Cluster genes
+  cluster_rows = TRUE,
+  clustering_distance_columns = "euclidean",
+  clustering_method_columns = "complete",
+  clustering_distance_rows = "euclidean",
+  clustering_method_rows = "complete",
+  show_column_names = FALSE,
+  show_row_names = TRUE,
+  row_names_gp = grid::gpar(fontsize = 12),
+  column_title_gp = grid::gpar(
+    fontsize = 14,
+    fontface = "bold"
+  ),
+  col = colorRampPalette(
+    c("navy", "white", "firebrick3")
+  )(100),
+  # Borders around individual heatmap cells
+  rect_gp = grid::gpar(
+    col = "grey80",
+    lwd = 0.5
+  ),
+  # Gap between Day 7 and Day 14
+  column_gap = grid::unit(4, "mm"),
+  heatmap_legend_param = list(
+    title = "Expression\nZ-score"
+  )
+)
+
+#PCA Analysis
+mat_pca <- t(mat_stable)
+pca <- prcomp(mat_pca, scale. = TRUE)
+pca_df <- data.frame(
+  PC1 = pca$x[,1],
+  PC2 = pca$x[,2],
+  Group = cd$Group
+)
+
+# Define colors & shapes
+group_colors <- c( "Control Syngeneic" = "forestgreen",
+                   "Control Allogeneic" = "red" )
+group_shapes <- c("Control Syngeneic" = 24,  # upward triangle
+                  "Control Allogeneic" = 25  # downward triangle
+                  )
+
+ggplot(pca_df, aes(PC1, PC2, color = Group,, shape = Group)) +
+  geom_point(aes(fill = Group), size = 5, stroke = 1.2) +
+  stat_ellipse(geom = "polygon", alpha = 0.2, aes(fill = Group), show.legend = FALSE, level = 0.7) +
+  scale_color_manual(values = group_colors) +
+  scale_fill_manual(values = group_colors) +
+  scale_shape_manual(values = group_shapes) +
+  theme_classic(base_size = 18) +
+  labs(
+    title = "Auto-Allo Genes from NOD: Syn vs Allo B6",
+    x = paste0("PC1 (", round(100 * summary(pca)$importance[2,1],1), "%)"),
+    y = paste0("PC2 (", round(100 * summary(pca)$importance[2,2],1), "%)")
+  ) +
+  theme(
+    legend.position = "top",
+    axis.title = element_text(size = 20, face = "bold"),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 1),
+    panel.grid = element_blank()
+  )
+
+
+### Gene Expressions Over Time
+
+vsd <- vst(dds_IsletTransplant_AlloVsSyn, blind = FALSE)
+mat <- assay(vsd)
+cd <- as.data.frame(colData(dds_IsletTransplant_AlloVsSyn))
+design_temporal <- model.matrix(
+  ~ Group * Day,
+  data = cd
+)
+
+mat_temporal <- limma::removeBatchEffect(
+  mat,
+  batch = cd$Batch,
+  design = design_temporal
+)
+
+mat_plot <- mat_temporal[
+  Auto_allo_signature,
+  ,
+  drop = FALSE
+]
+
+# Check that metadata and expression samples align
+stopifnot(
+  identical(colnames(mat_plot), rownames(cd))
+)
+
+
+#  Convert expression matrix to long format
+plot_df <- as.data.frame(mat_plot) %>%
+  rownames_to_column("Gene") %>%
+  pivot_longer(
+    cols = -Gene,
+    names_to = "Sample",
+    values_to = "Expression"
+  ) %>%
+  left_join(
+    cd %>%
+      rownames_to_column("Sample") %>%
+      select(Sample, Day, Group),
+    by = "Sample"
+  ) %>%
+  mutate(
+    Day = factor(
+      Day,
+      levels = c("7", "14")
+    ),
+    Group = factor(
+      Group,
+      levels = c(
+        "Control Syngeneic",
+        "Control Allogeneic"
+      )
+    )
+  )
+
+# Check for missing metadata
+stopifnot(
+  !any(is.na(plot_df$Day)),
+  !any(is.na(plot_df$Group))
+)
+
+
+gene_trajectory_plot <- ggplot(
+  plot_df,
+  aes(
+    x = Day,
+    y = Expression,
+    color = Group,
+    group = Group
+  )
+) +
+  
+  # Individual samples
+  geom_point(
+    aes(
+      shape = Group,
+      fill = Group
+    ),
+    position = position_jitter(
+      width = 0.06,
+      height = 0
+    ),
+    size = 2,
+    alpha = 0.55,
+    stroke = 0.5
+  ) +
+  
+  # Group mean connecting Day 7 and Day 14
+  stat_summary(
+    fun = mean,
+    geom = "line",
+    linewidth = 0.9
+  ) +
+  
+  # Group mean symbols
+  stat_summary(
+    aes(
+      shape = Group,
+      fill = Group
+    ),
+    fun = mean,
+    geom = "point",
+    size = 3.3,
+    stroke = 0.7
+  ) +
+  
+  # Mean ± SEM
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    width = 0.10,
+    linewidth = 0.6
+  ) +
+  
+  facet_wrap(
+    ~ Gene,
+    scales = "free_y",
+    ncol = 4
+  ) +
+  
+  scale_color_manual(
+    values = c(
+      "Control Syngeneic" = "forestgreen", 
+      "Control Allogeneic" = "red" 
+    )
+  ) +
+  
+  scale_fill_manual(
+    values = c(
+      "Control Syngeneic" = "forestgreen", 
+      "Control Allogeneic" = "red" 
+    )
+  ) +
+  
+  scale_shape_manual(
+    values = c(
+      "Control Syngeneic" = 24,  # upward triangle
+      "Control Allogeneic" = 25  # downward triangle
+    )
+  ) +
+  
+  labs(
+    title = "Temporal Expression- Auto-Allo NOD Signature in Allo vs Syn B6",
+    x = "Day post-transplant",
+    y = "Variance-stabilized (VST) expression",
+    color = "Group",
+    fill = "Group",
+    shape = "Group"
+  ) +
+  
+  theme_classic(base_size = 12) +
+  
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      hjust = 0.5,
+      size = 14
+    ),
+    strip.text = element_text(
+      face = "bold.italic",
+      colour = "black",
+      size = 12
+    ),
+    
+    strip.background = element_rect(
+      fill = "transparent",
+      colour = "black",
+      linewidth = 0.6
+    ),
+    
+    panel.border = element_rect(
+      colour = "black",
+      fill = NA,
+      linewidth = 0.5
+    ),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text  = element_text(size = 12),
+    legend.position = "bottom",
+    panel.spacing = grid::unit(0.8, "lines")
+  )
+
+gene_trajectory_plot
+
+
 # 5. Allo+Anti-CD40L-Rejection vs Acceptance-----
 
 # subset samples of D7 and D14
@@ -1033,31 +1641,98 @@ annotation_col <- data.frame(
 rownames(annotation_col) <- colnames(mat_scaled)
 
 
-annotation_colors <- list(
-  Group = c(
-    "Rejection" = "#F28500" ,   # Tangerine
-    "Acceptance" =  "#064273"   # Ocean
-  ),
-  Day = c(
-    "7" = "#F28E6B",
-    "14" = "#6FA287"
+# Column annotation
+annotation_col <- data.frame(
+  Day = factor(cd$Day, levels = c("7", "14")),
+  Group = factor(
+    cd$Group,
+    levels = c("Acceptance", "Rejection")
   )
 )
 
-pheatmap(
-  mat_scaled,
-  annotation_col = annotation_col,
-  annotation_colors = annotation_colors,
-  cluster_rows = TRUE,
-  cluster_cols = TRUE,
-  show_rownames = TRUE,
-  show_colnames = FALSE,
-  fontsize = 14,
-  fontsize_row = 12,
-  fontsize_col = 10,
-  color = colorRampPalette(c("navy","white","firebrick3"))(100),
-  main = "Rejection Vs Acceptance Signature"
+rownames(annotation_col) <- colnames(mat_scaled)
+
+stopifnot(
+  identical(rownames(annotation_col), colnames(mat_scaled))
 )
+
+# Top annotation
+ha <- HeatmapAnnotation(
+  df = annotation_col,
+  col = list(
+    Group = c(
+      "Acceptance" = "#064273",
+      "Rejection" = "#F28500"
+    ),
+    Day = c(
+      "7" = "#F28E6B",
+      "14" = "#6FA287"
+    )
+  ),
+  
+  border = TRUE,                # <-- adds borders around annotation cells
+  
+  gp = grid::gpar(
+    col = "grey80",              # border color
+    lwd = 0.5                   # border width
+  ),
+  
+  annotation_name_gp = grid::gpar(fontsize = 12)
+)
+
+
+Heatmap(
+  mat_scaled,
+  name = "Z-score",
+  
+  top_annotation = ha,
+  
+  # Separate Day 7 and Day 14
+  column_split = annotation_col$Day,
+  
+  # Cluster independently within each day
+  cluster_columns = TRUE,
+  cluster_column_slices = FALSE,
+  
+  column_title = c("Day 7", "Day 14"),
+  
+  # Cluster genes
+  cluster_rows = TRUE,
+  
+  clustering_distance_columns = "euclidean",
+  clustering_method_columns = "complete",
+  
+  clustering_distance_rows = "euclidean",
+  clustering_method_rows = "complete",
+  
+  show_column_names = FALSE,
+  show_row_names = TRUE,
+  
+  row_names_gp = grid::gpar(fontsize = 12),
+  column_title_gp = grid::gpar(
+    fontsize = 14,
+    fontface = "bold"
+  ),
+  
+  col = colorRampPalette(
+    c("navy", "white", "firebrick3")
+  )(100),
+  
+  # Borders around individual heatmap cells
+  rect_gp = grid::gpar(
+    col = "grey80",
+    lwd = 0.5
+  ),
+  
+  # Gap between Day 7 and Day 14
+  column_gap = grid::unit(4, "mm"),
+  
+  heatmap_legend_param = list(
+    title = "Expression\nZ-score"
+  )
+)
+
+
 
 
 #PCA Analysis
@@ -1093,6 +1768,563 @@ ggplot(pca_df, aes(PC1, PC2, color = Group,, shape = Group)) +
     axis.line = element_line(color = "black", linewidth = 1),
     panel.grid = element_blank()
   )
+
+### Gene Expressions Over Time----
+
+
+vsd <- vst(dds_IsletTransplant_RejVsAccep, blind = FALSE)
+mat <- assay(vsd)
+cd <- as.data.frame(colData(dds_IsletTransplant_RejVsAccep))
+design_temporal <- model.matrix(
+  ~ Group * Day,
+  data = cd
+)
+
+mat_temporal <- limma::removeBatchEffect(
+  mat,
+  batch = cd$Batch,
+  design = design_temporal
+)
+
+mat_plot <- mat_temporal[
+  stable_gene_names,
+  ,
+  drop = FALSE
+]
+
+# Check that metadata and expression samples align
+stopifnot(
+  identical(colnames(mat_plot), rownames(cd))
+)
+
+
+#  Convert expression matrix to long format
+plot_df <- as.data.frame(mat_plot) %>%
+  rownames_to_column("Gene") %>%
+  pivot_longer(
+    cols = -Gene,
+    names_to = "Sample",
+    values_to = "Expression"
+  ) %>%
+  left_join(
+    cd %>%
+      rownames_to_column("Sample") %>%
+      select(Sample, Day, Group),
+    by = "Sample"
+  ) %>%
+  mutate(
+    Day = factor(
+      Day,
+      levels = c("7", "14")
+    ),
+    Group = factor(
+      Group,
+      levels = c(
+        "Acceptance",
+        "Rejection"
+      )
+    )
+  )
+
+# Check for missing metadata
+stopifnot(
+  !any(is.na(plot_df$Day)),
+  !any(is.na(plot_df$Group))
+)
+
+
+gene_trajectory_plot <- ggplot(
+  plot_df,
+  aes(
+    x = Day,
+    y = Expression,
+    color = Group,
+    group = Group
+  )
+) +
+  
+  # Individual samples
+  geom_point(
+    aes(
+      shape = Group,
+      fill = Group
+    ),
+    position = position_jitter(
+      width = 0.06,
+      height = 0
+    ),
+    size = 2,
+    alpha = 0.55,
+    stroke = 0.5
+  ) +
+  
+  # Group mean connecting Day 7 and Day 14
+  stat_summary(
+    fun = mean,
+    geom = "line",
+    linewidth = 0.9
+  ) +
+  
+  # Group mean symbols
+  stat_summary(
+    aes(
+      shape = Group,
+      fill = Group
+    ),
+    fun = mean,
+    geom = "point",
+    size = 3.3,
+    stroke = 0.7
+  ) +
+  
+  # Mean ± SEM
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    width = 0.10,
+    linewidth = 0.6
+  ) +
+  
+  facet_wrap(
+    ~ Gene,
+    scales = "free_y",
+    ncol = 5
+  ) +
+  
+  scale_color_manual(
+    values = c(
+      "Rejection" = "#F28500", 
+      "Acceptance" = "#064273" 
+    )
+  ) +
+  
+  scale_fill_manual(
+    values = c(
+      "Rejection" = "#F28500", 
+      "Acceptance" = "#064273" 
+    )
+  ) +
+  
+  scale_shape_manual(
+    values = c(
+      "Rejection" = 15,  # upward triangle
+      "Acceptance" = 16  # downward triangle
+    )
+  ) +
+  
+  labs(
+    title = "Temporal Expression- Anti-CD40L Allogeneic Rejection vs Acceptance Signature",
+    x = "Day post-transplant",
+    y = "Variance-stabilized (VST) expression",
+    color = "Group",
+    fill = "Group",
+    shape = "Group"
+  ) +
+  
+  theme_classic(base_size = 12) +
+  
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      hjust = 0.5,
+      size = 14
+    ),
+    strip.text = element_text(
+      face = "bold.italic",
+      colour = "black",
+      size = 12
+    ),
+    
+    strip.background = element_rect(
+      fill = "transparent",
+      colour = "black",
+      linewidth = 0.6
+    ),
+    
+    panel.border = element_rect(
+      colour = "black",
+      fill = NA,
+      linewidth = 0.5
+    ),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text  = element_text(size = 12),
+    legend.position = "bottom",
+    panel.spacing = grid::unit(0.8, "lines")
+  )
+
+gene_trajectory_plot
+
+
+## Auto-Allo Genes Signature Cross Preservation----
+# subset samples of D7 and D14
+sel <- colData(dds_IsletTransplant)$Group %in% c("Acceptance","Rejection") & colData(dds_IsletTransplant)$Day %in% c(7,14)
+dds_IsletTransplant_RejVsAccep <- dds_IsletTransplant[, sel]
+
+dds_IsletTransplant_RejVsAccep$Batch       <- factor(dds_IsletTransplant_RejVsAccep$Batch)
+dds_IsletTransplant_RejVsAccep$LibraryPrep <- factor(dds_IsletTransplant_RejVsAccep$LibraryPrep)
+dds_IsletTransplant_RejVsAccep$Group <- factor(
+  dds_IsletTransplant_RejVsAccep$Group,
+  levels = c("Acceptance", "Rejection")  # order sets baseline
+)
+levels(dds_IsletTransplant_RejVsAccep$Group)
+
+dds_IsletTransplant_RejVsAccep$Day <- factor(dds_IsletTransplant_RejVsAccep$Day,
+                                             levels = c(7, 14))  # baseline = 7
+levels(dds_IsletTransplant_RejVsAccep$Day)
+
+cd <- as.data.frame(colData(dds_IsletTransplant_RejVsAccep))
+table(cd$Group,cd$Day)
+#            7 14
+#Acceptance 14 13
+#Rejection   2  3
+#Design Formula
+# keep <- rowSums(counts(dds_IsletTransplant_RejVsAccep) >= 10) >= 5  # Total Samples in Rejection group used to account for group imbalance
+# dds_IsletTransplant_RejVsAccep <- dds_IsletTransplant_RejVsAccep[keep, ]
+design(dds_IsletTransplant_RejVsAccep) <- ~ Batch + Day + Group 
+dds_IsletTransplant_RejVsAccep <- DESeq(dds_IsletTransplant_RejVsAccep)
+design(dds_IsletTransplant_RejVsAccep)
+resultsNames(dds_IsletTransplant_RejVsAccep)
+
+
+vsd <- vst(dds_IsletTransplant_RejVsAccep, blind = FALSE)
+mat <- assay(vsd)
+cd <- as.data.frame(colData(dds_IsletTransplant_RejVsAccep))
+design_enet <- model.matrix(~ Group, data = cd)
+mat_enet <- limma::removeBatchEffect(
+  mat,
+  batch = vsd$Batch,
+  covariates = model.matrix(~ Day, data = cd)[, -1, drop = FALSE],
+  design = design_enet
+)
+
+#Plot Heatmp and PCA using Selected Genes 
+Auto_allo_signature <- c("Rsph10b","S1pr5","Erdr1","Pla2g4b","Clec2g","Ctsg","Syce1","Fndc7",
+                         "Epgn","Tmem132e","Stkld1","Osbpl6","Sycp3")
+setdiff(Auto_allo_signature, rownames(mat_enet))
+mat_stable <- mat_enet[Auto_allo_signature, , drop = FALSE]
+mat_scaled <- t(scale(t(mat_stable)))
+annotation_col <- data.frame(
+  Day = cd$Day,
+  Group = cd$Group
+)
+rownames(annotation_col) <- colnames(mat_scaled)
+
+
+# Column annotation
+annotation_col <- data.frame(
+  Day = factor(cd$Day, levels = c("7", "14")),
+  Group = factor(
+    cd$Group,
+    levels = c("Acceptance", "Rejection")
+  )
+)
+
+rownames(annotation_col) <- colnames(mat_scaled)
+
+stopifnot(
+  identical(rownames(annotation_col), colnames(mat_scaled))
+)
+
+# Top annotation
+ha <- HeatmapAnnotation(
+  df = annotation_col,
+  col = list(
+    Group = c(
+      "Acceptance" = "#064273",
+      "Rejection" = "#F28500"
+    ),
+    Day = c(
+      "7" = "#F28E6B",
+      "14" = "#6FA287"
+    )
+  ),
+  
+  border = TRUE,                # <-- adds borders around annotation cells
+  
+  gp = grid::gpar(
+    col = "grey80",              # border color
+    lwd = 0.5                   # border width
+  ),
+  
+  annotation_name_gp = grid::gpar(fontsize = 12)
+)
+
+
+Heatmap(
+  mat_scaled,
+  name = "Z-score",
+  
+  top_annotation = ha,
+  
+  # Separate Day 7 and Day 14
+  column_split = annotation_col$Day,
+  
+  # Cluster independently within each day
+  cluster_columns = TRUE,
+  cluster_column_slices = FALSE,
+  
+  column_title = c("Day 7", "Day 14"),
+  
+  # Cluster genes
+  cluster_rows = TRUE,
+  
+  clustering_distance_columns = "euclidean",
+  clustering_method_columns = "complete",
+  
+  clustering_distance_rows = "euclidean",
+  clustering_method_rows = "complete",
+  
+  show_column_names = FALSE,
+  show_row_names = TRUE,
+  
+  row_names_gp = grid::gpar(fontsize = 12),
+  column_title_gp = grid::gpar(
+    fontsize = 14,
+    fontface = "bold"
+  ),
+  
+  col = colorRampPalette(
+    c("navy", "white", "firebrick3")
+  )(100),
+  
+  # Borders around individual heatmap cells
+  rect_gp = grid::gpar(
+    col = "grey80",
+    lwd = 0.5
+  ),
+  
+  # Gap between Day 7 and Day 14
+  column_gap = grid::unit(4, "mm"),
+  
+  heatmap_legend_param = list(
+    title = "Expression\nZ-score"
+  )
+)
+
+#PCA Analysis
+mat_pca <- t(mat_stable)
+pca <- prcomp(mat_pca, scale. = TRUE)
+pca_df <- data.frame(
+  PC1 = pca$x[,1],
+  PC2 = pca$x[,2],
+  Group = cd$Group
+)
+
+# Define colors & shapes
+group_colors <- c("Rejection" = "#F28500", "Acceptance" = "#064273" )
+group_shapes <- c("Rejection" = 15, "Acceptance" = 16)
+
+ggplot(pca_df, aes(PC1, PC2, color = Group,, shape = Group)) +
+  geom_point(aes(fill = Group), size = 5, stroke = 1.2) +
+  stat_ellipse(geom = "polygon", alpha = 0.2, aes(fill = Group), show.legend = FALSE, level = 0.7) +
+  scale_color_manual(values = group_colors) +
+  scale_fill_manual(values = group_colors) +
+  scale_shape_manual(values = group_shapes) +
+  theme_classic(base_size = 18) +
+  labs(
+    title = "PCA of Stable Elastic Net Genes",
+    x = paste0("PC1 (", round(100 * summary(pca)$importance[2,1],1), "%)"),
+    y = paste0("PC2 (", round(100 * summary(pca)$importance[2,2],1), "%)")
+  ) +
+  theme(
+    legend.position = "top",
+    axis.title = element_text(size = 20, face = "bold"),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 1),
+    panel.grid = element_blank()
+  )
+
+
+### Gene Expressions Over Time
+
+vsd <- vst(dds_IsletTransplant_RejVsAccep, blind = FALSE)
+mat <- assay(vsd)
+cd <- as.data.frame(colData(dds_IsletTransplant_RejVsAccep))
+design_temporal <- model.matrix(
+  ~ Group * Day,
+  data = cd
+)
+
+mat_temporal <- limma::removeBatchEffect(
+  mat,
+  batch = cd$Batch,
+  design = design_temporal
+)
+
+mat_plot <- mat_temporal[
+  Auto_allo_signature,
+  ,
+  drop = FALSE
+]
+
+# Check that metadata and expression samples align
+stopifnot(
+  identical(colnames(mat_plot), rownames(cd))
+)
+
+
+#  Convert expression matrix to long format
+plot_df <- as.data.frame(mat_plot) %>%
+  rownames_to_column("Gene") %>%
+  pivot_longer(
+    cols = -Gene,
+    names_to = "Sample",
+    values_to = "Expression"
+  ) %>%
+  left_join(
+    cd %>%
+      rownames_to_column("Sample") %>%
+      select(Sample, Day, Group),
+    by = "Sample"
+  ) %>%
+  mutate(
+    Day = factor(
+      Day,
+      levels = c("7", "14")
+    ),
+    Group = factor(
+      Group,
+      levels = c(
+        "Acceptance",
+        "Rejection"
+      )
+    )
+  )
+
+# Check for missing metadata
+stopifnot(
+  !any(is.na(plot_df$Day)),
+  !any(is.na(plot_df$Group))
+)
+
+
+gene_trajectory_plot <- ggplot(
+  plot_df,
+  aes(
+    x = Day,
+    y = Expression,
+    color = Group,
+    group = Group
+  )
+) +
+  
+  # Individual samples
+  geom_point(
+    aes(
+      shape = Group,
+      fill = Group
+    ),
+    position = position_jitter(
+      width = 0.06,
+      height = 0
+    ),
+    size = 2,
+    alpha = 0.55,
+    stroke = 0.5
+  ) +
+  
+  # Group mean connecting Day 7 and Day 14
+  stat_summary(
+    fun = mean,
+    geom = "line",
+    linewidth = 0.9
+  ) +
+  
+  # Group mean symbols
+  stat_summary(
+    aes(
+      shape = Group,
+      fill = Group
+    ),
+    fun = mean,
+    geom = "point",
+    size = 3.3,
+    stroke = 0.7
+  ) +
+  
+  # Mean ± SEM
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    width = 0.10,
+    linewidth = 0.6
+  ) +
+  
+  facet_wrap(
+    ~ Gene,
+    scales = "free_y",
+    ncol = 4
+  ) +
+  
+  scale_color_manual(
+    values = c(
+      "Rejection" = "#F28500", 
+      "Acceptance" = "#064273" 
+    )
+  ) +
+  
+  scale_fill_manual(
+    values = c(
+      "Rejection" = "#F28500", 
+      "Acceptance" = "#064273" 
+    )
+  ) +
+  
+  scale_shape_manual(
+    values = c(
+      "Rejection" = 15,  # upward triangle
+      "Acceptance" = 16  # downward triangle
+    )
+  ) +
+  
+  labs(
+    title = "Temporal Expression- Auto-Allo NOD Signature in Anti-CD40L Allo B6",
+    x = "Day post-transplant",
+    y = "Variance-stabilized (VST) expression",
+    color = "Group",
+    fill = "Group",
+    shape = "Group"
+  ) +
+  
+  theme_classic(base_size = 12) +
+  
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      hjust = 0.5,
+      size = 14
+    ),
+    strip.text = element_text(
+      face = "bold.italic",
+      colour = "black",
+      size = 12
+    ),
+    
+    strip.background = element_rect(
+      fill = "transparent",
+      colour = "black",
+      linewidth = 0.6
+    ),
+    
+    panel.border = element_rect(
+      colour = "black",
+      fill = NA,
+      linewidth = 0.5
+    ),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text  = element_text(size = 12),
+    legend.position = "bottom",
+    panel.spacing = grid::unit(0.8, "lines")
+  )
+
+gene_trajectory_plot
 
 
 ## GSEA Analysis----
@@ -2254,3 +3486,1240 @@ ggplot(plot_df, aes(x = NES, y = ID, size = neglog10_padj, color = NES)) +
     plot.title = element_text(face = "bold", hjust = 0.5)
   )
 
+
+
+
+#8. IN vs Liver Flow Surrogate Analysis----
+
+### Allo vs Syn Transplant----
+library(readxl)
+raw_df_syn <- read_excel(
+  "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Supplementary Tables/Supp_Table3_LiverVsScaf.xlsx",
+  sheet = "Syngeneic"
+)
+raw_df_allo <- read_excel(
+  "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Supplementary Tables/Supp_Table3_LiverVsScaf.xlsx",
+  sheet = "Allogeneic (without aCD40L)"
+)
+
+# Keep only the columns present in the Syngeneic sheet
+raw_df_allo <- raw_df_allo %>%
+  dplyr::select(all_of(names(raw_df_syn)))
+
+# Combine
+raw_df <- dplyr::bind_rows(
+  raw_df_syn,
+  raw_df_allo
+)
+
+# Check
+dim(raw_df)
+table(raw_df$Group)
+
+# Inspect imported column names
+names(raw_df)
+marker_cols <- names(raw_df)[9:14]
+
+# Rename columns for easier handling
+names(raw_df)[1:16] <- c(
+  "Samples",
+  "Mouse",
+  "Batch",
+  "Group",
+  "Time",
+  "ExperimentDate",
+  "RecipientSpecies",
+  "Tissue",
+  "Immune cells",
+  "Neutrophils",
+  "Macrophages",
+  "T cells",
+  "CD4 T cells",
+  "CD8 T cells",
+  "B cells",
+  "Dendritic cells"
+)
+
+
+df <- raw_df %>%
+  mutate(
+    Group = factor(
+      Group,
+      levels = c(
+        "Syngeneic",
+        "Allogeneic"
+      )
+    ),
+    Tissue = factor(
+      Tissue,
+      levels = c(
+        "Scaffold",
+        "Liver"
+      )
+    )
+  )
+
+marker_names <- c(
+  "Immune cells",
+  "Neutrophils",
+  "Macrophages",
+  "T cells",
+  "CD4 T cells",
+  "CD8 T cells",
+  "B cells",
+  "Dendritic cells"
+)
+
+paired_long <- df %>%
+  pivot_longer(
+    cols = all_of(marker_names),
+    names_to = "Marker",
+    values_to = "Frequency"
+  ) %>%
+  select(
+    Mouse,
+    Group,
+    Time,
+    Batch,
+    Tissue,
+    Marker,
+    Frequency
+  ) %>%
+  pivot_wider(
+    names_from = Tissue,
+    values_from = Frequency
+  ) %>%
+  drop_na(
+    Scaffold,
+    Liver
+  )
+
+paired_long %>%
+  dplyr::count(Marker, Group)
+
+
+marker_axis_labels <- c(
+  "Immune cells" = "CD45+ immune cells (% of live cells)",
+  "Neutrophils" = "Ly6G+ neutrophils (% of CD45+ cells)",
+  "Macrophages" = "F4/80+ macrophages (% of CD45+ cells)",
+  "T cells" = "CD3+ T cells (% of CD45+ cells)",
+  "CD4 T cells" = "CD4+ T cells (% of CD3+ cells)",
+  "CD8 T cells" = "CD8+ T cells (% of CD3+ cells)",
+  "B cells" = "CD19+ B cells (% of CD45+ cells)",
+  "Dendritic cells" = "CD11c+MHC-II+ dendritic cells (% of CD45+ cells)"
+)
+
+
+make_correlation_plot <- function(marker_name, data = paired_long) 
+  {
+  marker_df <- data %>%
+    dplyr::filter(
+      Marker == marker_name,
+      !is.na(Liver),
+      !is.na(Scaffold)
+    )
+  
+  if (nrow(marker_df) < 3) {
+    stop(
+      paste0(
+        "Not enough paired observations for marker: ",
+        marker_name
+      )
+    )
+  }
+  
+  # Calculate Pearson correlation separately for each group
+  cor_stats <- marker_df %>%
+    dplyr::group_by(Group) %>%
+    dplyr::summarise(
+      n = dplyr::n(),
+      cor_test = list(
+        if (dplyr::n() >= 3) {
+          cor.test(
+            Liver,
+            Scaffold,
+            method = "pearson"
+          )
+        } else {
+          NULL
+        }
+      ),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(
+      r = purrr::map_dbl(
+        cor_test,
+        ~ if (is.null(.x)) NA_real_ else unname(.x$estimate)
+      ),
+      p = purrr::map_dbl(
+        cor_test,
+        ~ if (is.null(.x)) NA_real_ else .x$p.value
+      ),
+      cor_label = dplyr::if_else(
+        is.na(r),
+        paste0(Group, ": insufficient observations"),
+        paste0(
+          Group,
+          ": r = ",
+          sprintf("%.2f", r),
+          ", P = ",
+          format.pval(
+            p,
+            digits = 2,
+            eps = 0.001
+          )
+        )
+      )
+    )
+  
+  # Combine group-specific statistics into one annotation
+  stats_label <- paste(
+    cor_stats$cor_label,
+    collapse = "\n"
+  )
+  
+  axis_label <- marker_axis_labels[[marker_name]]
+  
+  if (is.null(axis_label)) {
+    axis_label <- marker_name
+  }
+  
+  ggplot(
+    marker_df,
+    aes(
+      x = Liver,
+      y = Scaffold,
+      color = Group,
+      shape = Group,
+      fill = Group
+    )
+  ) +
+    
+    # Separate regression line for each group
+    geom_smooth(
+      aes(
+        group = Group,
+        color = Group,
+        fill = Group
+      ),
+      method = "lm",
+      formula = y ~ x,
+      se = TRUE,
+      linewidth = 1,
+      alpha = 0.20
+    ) +
+    
+    geom_point(
+      size = 4.5,
+      color = "black",
+      stroke = 0.8
+    ) +
+    
+    scale_color_manual(
+      values = c(
+        "Syngeneic" = "#2E6F40",
+        "Allogeneic" = "#FF2400"
+      )
+    ) +
+    
+    scale_fill_manual(
+      values = c(
+        "Syngeneic" = "#2E6F40",
+        "Allogeneic" = "#FF2400"
+      )
+    ) +
+    
+    scale_shape_manual(
+      values = c(
+        "Syngeneic" = 24,
+        "Allogeneic" = 25
+      )
+    ) +
+    
+    annotate(
+      "text",
+      x = Inf,
+      y = Inf,
+      label = stats_label,
+      hjust = 1.05,
+      vjust = 1.2,
+      size = 4.5,
+      lineheight = 1.2
+    ) +
+    
+    labs(
+      title = marker_name,
+      x = paste0("Liver ", axis_label),
+      y = paste0("IN ", axis_label),
+      color = "Group",
+      fill = "Group",
+      shape = "Group"
+    ) +
+    
+    theme_classic(base_size = 14) +
+    
+    theme(
+      plot.title = element_text(
+        size = 16,
+        face = "bold",
+        hjust = 0.5
+      ),
+      
+      axis.title = element_text(
+        size = 14,
+        face = "bold"
+      ),
+      
+      axis.text = element_text(
+        size = 13,
+        colour = "black"
+      ),
+      
+      axis.line = element_line(
+        colour = "black",
+        linewidth = 0.8
+      ),
+      
+      axis.ticks = element_line(
+        colour = "black",
+        linewidth = 0.8
+      ),
+      
+      axis.ticks.length = grid::unit(
+        0.25,
+        "cm"
+      ),
+      
+      legend.position = "bottom",
+      
+      legend.title = element_text(
+        size = 13,
+        face = "bold"
+      ),
+      
+      legend.text = element_text(
+        size = 12
+      )
+    )
+}
+markers_to_plot <- unique(paired_long$Marker)
+
+correlation_plots <- setNames(
+  lapply(
+    markers_to_plot,
+    make_correlation_plot
+  ),
+  markers_to_plot
+)
+
+correlation_plots
+
+
+### Allo With vs Without-Anti-CD40L Transplant----
+library(readxl)
+
+raw_df_allo <- read_excel(
+  "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Supplementary Tables/Supp_Table3_LiverVsScaf.xlsx",
+  sheet = "Allogeneic (without aCD40L)"
+)
+
+raw_df_alloaCD40L <- read_excel(
+  "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Supplementary Tables/Supp_Table3_LiverVsScaf.xlsx",
+  sheet = "Allogeneic (aCD40L)"
+)
+
+# Keep only the columns present in the Syngeneic sheet
+raw_df_allo <- raw_df_allo %>%
+  dplyr::select(all_of(names(raw_df_alloaCD40L)))
+
+# Combine
+raw_df <- dplyr::bind_rows(
+  raw_df_alloaCD40L,
+  raw_df_allo
+)
+
+# Check
+dim(raw_df)
+table(raw_df$Group)
+
+# Inspect imported column names
+names(raw_df)
+marker_cols <- names(raw_df)[9:18]
+
+# Rename columns for easier handling
+names(raw_df)[1:18] <- c(
+  "Samples",
+  "Mouse",
+  "Batch",
+  "Group",
+  "Time",
+  "ExperimentDate",
+  "RecipientSpecies",
+  "Tissue",
+  "Immune cells",
+  "Neutrophils",
+  "Macrophages",
+  "CX3CR1+ Macrophages",
+  "T cells",
+  "CD4 T cells",
+  "CD8 T cells",
+  "B cells",
+  "Dendritic cells",
+  "CX3CR1+ DCs"
+)
+
+
+df <- raw_df %>%
+  mutate(
+    Group = factor(
+      Group,
+      levels = c(
+        "Allogeneic_aCD40L",
+        "Allogeneic"
+      )
+    ),
+    Tissue = factor(
+      Tissue,
+      levels = c(
+        "Scaffold",
+        "Liver"
+      )
+    )
+  )
+
+marker_names <- c(
+  "Immune cells",
+  "Neutrophils",
+  "Macrophages",
+  "CX3CR1+ Macrophages",
+  "T cells",
+  "CD4 T cells",
+  "CD8 T cells",
+  "B cells",
+  "Dendritic cells",
+  "CX3CR1+ DCs"
+)
+
+paired_long <- df %>%
+  pivot_longer(
+    cols = all_of(marker_names),
+    names_to = "Marker",
+    values_to = "Frequency"
+  ) %>%
+  select(
+    Mouse,
+    Group,
+    Time,
+    Batch,
+    Tissue,
+    Marker,
+    Frequency
+  ) %>%
+  pivot_wider(
+    names_from = Tissue,
+    values_from = Frequency
+  ) %>%
+  drop_na(
+    Scaffold,
+    Liver
+  )
+
+paired_long %>%
+  dplyr::count(Marker, Group)
+
+
+marker_axis_labels <- c(
+  "Immune cells" = "CD45+ immune cells (% of live cells)",
+  "Neutrophils" = "Ly6G+ neutrophils (% of CD45+ cells)",
+  "Macrophages" = "F4/80+ macrophages (% of CD45+ cells)",
+  "CX3CR1+ Macrophages" = "F4/80+ macrophages (% of CD45+ cells)",
+  "T cells" = "CD3+ T cells (% of CD45+ cells)",
+  "CD4 T cells" = "CD4+ T cells (% of CD3+ cells)",
+  "CD8 T cells" = "CD8+ T cells (% of CD3+ cells)",
+  "B cells" = "CD19+ B cells (% of CD45+ cells)",
+  "Dendritic cells" = "CD11c+MHC-II+ dendritic cells (% of CD45+ cells)",
+  "CX3CR1+ DCs" = "CX3CR1+ DCs (% of CD45+ cells)"
+)
+
+
+make_correlation_plot <- function(marker_name, data = paired_long) 
+{
+  marker_df <- data %>%
+    dplyr::filter(
+      Marker == marker_name,
+      !is.na(Liver),
+      !is.na(Scaffold)
+    )
+  
+  if (nrow(marker_df) < 3) {
+    stop(
+      paste0(
+        "Not enough paired observations for marker: ",
+        marker_name
+      )
+    )
+  }
+  
+  # Calculate Pearson correlation separately for each group
+  cor_stats <- marker_df %>%
+    dplyr::group_by(Group) %>%
+    dplyr::summarise(
+      n = dplyr::n(),
+      cor_test = list(
+        if (dplyr::n() >= 3) {
+          cor.test(
+            Liver,
+            Scaffold,
+            method = "pearson"
+          )
+        } else {
+          NULL
+        }
+      ),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(
+      r = purrr::map_dbl(
+        cor_test,
+        ~ if (is.null(.x)) NA_real_ else unname(.x$estimate)
+      ),
+      p = purrr::map_dbl(
+        cor_test,
+        ~ if (is.null(.x)) NA_real_ else .x$p.value
+      ),
+      cor_label = dplyr::if_else(
+        is.na(r),
+        paste0(Group, ": insufficient observations"),
+        paste0(
+          Group,
+          ": r = ",
+          sprintf("%.2f", r),
+          ", P = ",
+          format.pval(
+            p,
+            digits = 2,
+            eps = 0.001
+          )
+        )
+      )
+    )
+  
+  # Combine group-specific statistics into one annotation
+  stats_label <- paste(
+    cor_stats$cor_label,
+    collapse = "\n"
+  )
+  
+  axis_label <- marker_axis_labels[[marker_name]]
+  
+  if (is.null(axis_label)) {
+    axis_label <- marker_name
+  }
+  
+  ggplot(
+    marker_df,
+    aes(
+      x = Liver,
+      y = Scaffold,
+      color = Group,
+      shape = Group,
+      fill = Group
+    )
+  ) +
+    
+    # Separate regression line for each group
+    geom_smooth(
+      aes(
+        group = Group,
+        color = Group,
+        fill = Group
+      ),
+      method = "lm",
+      formula = y ~ x,
+      se = TRUE,
+      linewidth = 1,
+      alpha = 0.20
+    ) +
+    
+    geom_point(
+      size = 4.5,
+      color = "black",
+      stroke = 0.8
+    ) +
+    
+    scale_color_manual(
+      values = c(
+        "Allogeneic_aCD40L" = "#064273",
+        "Allogeneic" = "#FF2400"
+      )
+    ) +
+    
+    scale_fill_manual(
+      values = c(
+        "Allogeneic_aCD40L" = "#064273",
+        "Allogeneic" = "#FF2400"
+      )
+    ) +
+    scale_shape_manual(
+      values = c(
+        "Allogeneic_aCD40L" = 21,
+        "Allogeneic" = 25
+      )
+    ) +
+    
+    annotate(
+      "text",
+      x = Inf,
+      y = Inf,
+      label = stats_label,
+      hjust = 1.05,
+      vjust = 1.2,
+      size = 4.5,
+      lineheight = 1.2
+    ) +
+    
+    labs(
+      title = marker_name,
+      x = paste0("Liver ", axis_label),
+      y = paste0("IN ", axis_label),
+      color = "Group",
+      fill = "Group",
+      shape = "Group"
+    ) +
+    
+    theme_classic(base_size = 14) +
+    
+    theme(
+      plot.title = element_text(
+        size = 16,
+        face = "bold",
+        hjust = 0.5
+      ),
+      
+      axis.title = element_text(
+        size = 14,
+        face = "bold"
+      ),
+      
+      axis.text = element_text(
+        size = 13,
+        colour = "black"
+      ),
+      
+      axis.line = element_line(
+        colour = "black",
+        linewidth = 0.8
+      ),
+      
+      axis.ticks = element_line(
+        colour = "black",
+        linewidth = 0.8
+      ),
+      
+      axis.ticks.length = grid::unit(
+        0.25,
+        "cm"
+      ),
+      
+      legend.position = "bottom",
+      
+      legend.title = element_text(
+        size = 13,
+        face = "bold"
+      ),
+      
+      legend.text = element_text(
+        size = 12
+      )
+    )
+}
+
+
+
+markers_to_plot <- unique(paired_long$Marker)
+
+correlation_plots <- setNames(
+  lapply(
+    markers_to_plot,
+    make_correlation_plot
+  ),
+  markers_to_plot
+)
+
+correlation_plots
+
+
+
+
+### Auto-Allo Transplant----
+library(readxl)
+raw_df <- read_excel(
+  "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Supplementary Tables/Supp_Table3_LiverVsScaf.xlsx",
+  sheet = "NOD Allogeneic"
+)
+
+# Inspect imported column names
+names(raw_df)
+marker_cols <- names(raw_df)[9:15]
+
+# Rename columns for easier handling
+names(raw_df)[1:15] <- c(
+  "SampleID",
+  "Mouse",
+  "Group",
+  "Time",
+  "Batch",
+  "ExperimentDate",
+  "RecipientSpecies",
+  "Tissue",
+  "Immune cells",
+  "Myeloid cells",
+  "Neutrophils",
+  "Macrophages",
+  "T cells",
+  "B cells",
+  "Dendritic cells"
+)
+
+
+df <- raw_df %>%
+  mutate(
+    Group = factor(
+      Group,
+      levels = c(
+        "Early Rejection",
+        "Late Rejection"
+      )
+    ),
+    Tissue = factor(
+      Tissue,
+      levels = c(
+        "Scaffold",
+        "Liver"
+      )
+    )
+  )
+
+marker_names <- c(
+  "Immune cells",
+  "Myeloid cells",
+  "Neutrophils",
+  "Macrophages",
+  "T cells",
+  "B cells",
+  "Dendritic cells"
+)
+
+paired_long <- df %>%
+  pivot_longer(
+    cols = all_of(marker_names),
+    names_to = "Marker",
+    values_to = "Frequency"
+  ) %>%
+  select(
+    Mouse,
+    Group,
+    Time,
+    Batch,
+    Tissue,
+    Marker,
+    Frequency
+  ) %>%
+  pivot_wider(
+    names_from = Tissue,
+    values_from = Frequency
+  ) %>%
+  drop_na(
+    Scaffold,
+    Liver
+  )
+
+paired_long %>%
+  dplyr::count(Marker, Group)
+
+
+marker_axis_labels <- c(
+  "Immune cells" = "CD45+ immune cells (% of live cells)",
+  "Myeloid cells" = "CD11b+ myeloid cells (% of CD45+ cells)",
+  "Neutrophils" = "Ly6G+ neutrophils (% of CD45+ cells)",
+  "Macrophages" = "F4/80+ macrophages (% of CD45+ cells)",
+  "T cells" = "CD3+ T cells (% of CD45+ cells)",
+  "B cells" = "CD19+ B cells (% of CD45+ cells)",
+  "Dendritic cells" = "CD11c+MHC-II+ dendritic cells (% of CD45+ cells)"
+)
+
+
+make_correlation_plot <- function(marker_name, data = paired_long) {
+  
+  marker_df <- data %>%
+    dplyr::filter(Marker == marker_name) %>%
+    dplyr::filter(
+      !is.na(Liver),
+      !is.na(Scaffold)
+    )
+  
+  if (nrow(marker_df) < 3) {
+    stop(
+      paste0(
+        "Not enough paired observations for marker: ",
+        marker_name
+      )
+    )
+  }
+  
+  cor_result <- cor.test(
+    marker_df$Liver,
+    marker_df$Scaffold,
+    method = "pearson"
+  )
+  
+  cor_label <- paste0(
+    "Pearson r = ",
+    sprintf("%.2f", unname(cor_result$estimate)),
+    "\nP = ",
+    format.pval(
+      cor_result$p.value,
+      digits = 2,
+      eps = 0.001
+    ),
+    "\nn = ",
+    nrow(marker_df)
+  )
+  
+  axis_label <- marker_axis_labels[[marker_name]]
+  
+  if (is.null(axis_label)) {
+    axis_label <- marker_name
+  }
+  
+  ggplot(
+    marker_df,
+    aes(
+      x = Liver,
+      y = Scaffold,
+      color = Group,
+      shape = Group
+    )
+  ) +
+    
+    # One overall regression line
+    geom_smooth(
+      data = marker_df,
+      aes(
+        x = Liver,
+        y = Scaffold,
+        group = 1
+      ),
+      inherit.aes = FALSE,
+      method = "lm",
+      formula = y ~ x,
+      se = TRUE,
+      color = "black",
+      fill = "grey80",
+      linewidth = 1,
+      alpha = 0.3
+    ) +
+    
+    geom_point(
+      size = 4.5
+    ) +
+    
+    scale_color_manual(
+      values = c(
+        "Early Rejection" = "#B23A48",
+        "Late Rejection" = "#2A6F97"
+      )
+    ) +
+    
+    scale_shape_manual(
+      values = c(
+        "Early Rejection" = 15,
+        "Late Rejection" = 16
+      )
+    ) +
+    
+    annotate(
+      "text",
+      x = Inf,
+      y = Inf,
+      label = cor_label,
+      hjust = 1.1,
+      vjust = 1.2,
+      size = 5
+    ) +
+    
+    labs(
+      title = marker_name,
+      x = paste0("Liver ", axis_label),
+      y = paste0("IN ", axis_label),
+      color = "Group",
+      shape = "Group"
+    ) +
+    
+    theme_classic(base_size = 14) +
+    
+    theme(
+      plot.title = element_text(
+        size = 16,
+        face = "bold",
+        hjust = 0.5
+      ),
+      
+      axis.title = element_text(
+        size = 14,
+        face = "bold"
+      ),
+      
+      axis.text = element_text(
+        size = 13,
+        colour = "black"
+      ),
+      
+      axis.line = element_line(
+        colour = "black",
+        linewidth = 0.8
+      ),
+      
+      axis.ticks = element_line(
+        colour = "black",
+        linewidth = 0.8
+      ),
+      
+      axis.ticks.length = grid::unit(
+        0.25,
+        "cm"
+      ),
+      
+      legend.position = "bottom",
+      
+      legend.title = element_text(
+        size = 13,
+        face = "bold"
+      ),
+      
+      legend.text = element_text(
+        size = 12
+      )
+    )
+}
+markers_to_plot <- unique(paired_long$Marker)
+
+correlation_plots <- setNames(
+  lapply(
+    markers_to_plot,
+    make_correlation_plot
+  ),
+  markers_to_plot
+)
+
+correlation_plots
+
+
+### Baseline----
+library(readxl)
+raw_df <- read_excel(
+  "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Supplementary Tables/Supp_Table3_LiverVsScaf.xlsx",
+  sheet = "Baseline C57BL6"
+)
+
+# Inspect imported column names
+names(raw_df)
+marker_cols <- names(raw_df)[6:15]
+
+# Rename columns for easier handling
+names(raw_df)[1:15] <- c(
+  "SampleID",
+  "Mouse",
+  "Group",
+  "Time",
+  "Tissue",
+  "Immune cells",
+  "Neutrophils",
+  "Macrophages",
+  "CX3CR1+ Macrophages",
+  "T cells",
+  "CD4 T cells",
+  "CD8 T cells",
+  "B cells",
+  "Dendritic cells",
+  "CX3CR1+ Dendritic cells"
+)
+
+
+df <- raw_df %>%
+  mutate(
+    Group = factor(
+      Group,
+      levels = c(
+        "Baseline (W/o STZ)",
+        "Baseline (With STZ)"
+      )
+    ),
+    Tissue = factor(
+      Tissue,
+      levels = c(
+        "Scaffold",
+        "Liver"
+      )
+    )
+  )
+
+marker_names <- c(
+  "Immune cells",
+  "Neutrophils",
+  "Macrophages",
+  "CX3CR1+ Macrophages",
+  "T cells",
+  "CD4 T cells",
+  "CD8 T cells",
+  "B cells",
+  "Dendritic cells",
+  "CX3CR1+ Dendritic cells"
+)
+
+paired_long <- df %>%
+  pivot_longer(
+    cols = all_of(marker_names),
+    names_to = "Marker",
+    values_to = "Frequency"
+  ) %>%
+  select(
+    Mouse,
+    Group,
+    Time,
+    Tissue,
+    Marker,
+    Frequency
+  ) %>%
+  pivot_wider(
+    names_from = Tissue,
+    values_from = Frequency
+  ) %>%
+  drop_na(
+    Scaffold,
+    Liver
+  )
+
+paired_long %>%
+  dplyr::count(Marker, Group)
+
+
+marker_axis_labels <- c(
+  "Immune cells" = "CD45+ immune cells (% of live cells)",
+  "Neutrophils" = "Ly6G+ neutrophils (% of CD45+ cells)",
+  "Macrophages" = "F4/80+ macrophages (% of CD45+ cells)",
+  "CX3CR1+ Macrophages" = "CX3CR1+ macrophages (% of CD45+ cells)",
+  "T cells" = "CD3+ T cells (% of CD45+ cells)",
+  "CD4 T cells" = "CD4+ T cells (% of CD3+ T cells)",
+  "CD8 T cells" = "CD8+ T cells (% of CD3+ T cells)",
+  "B cells" = "CD19+ B cells (% of CD45+ cells)",
+  "Dendritic cells" = "CD11c+MHC-II+ dendritic cells (% of CD45+ cells)",
+  "CX3CR1+ Dendritic cells" = "CX3CR1+ dendritic cells (% of CD45+ cells)"
+)
+
+make_correlation_plot <- function(marker_name, data = paired_long) 
+{
+  marker_df <- data %>%
+    dplyr::filter(
+      Marker == marker_name,
+      !is.na(Liver),
+      !is.na(Scaffold)
+    )
+  
+  if (nrow(marker_df) < 3) {
+    stop(
+      paste0(
+        "Not enough paired observations for marker: ",
+        marker_name
+      )
+    )
+  }
+  
+  # Calculate Pearson correlation separately for each group
+  cor_stats <- marker_df %>%
+    dplyr::group_by(Group) %>%
+    dplyr::summarise(
+      n = dplyr::n(),
+      cor_test = list(
+        if (dplyr::n() >= 3) {
+          cor.test(
+            Liver,
+            Scaffold,
+            method = "pearson"
+          )
+        } else {
+          NULL
+        }
+      ),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(
+      r = purrr::map_dbl(
+        cor_test,
+        ~ if (is.null(.x)) NA_real_ else unname(.x$estimate)
+      ),
+      p = purrr::map_dbl(
+        cor_test,
+        ~ if (is.null(.x)) NA_real_ else .x$p.value
+      ),
+      cor_label = dplyr::if_else(
+        is.na(r),
+        paste0(Group, ": insufficient observations"),
+        paste0(
+          Group,
+          ": r = ",
+          sprintf("%.2f", r),
+          ", P = ",
+          format.pval(
+            p,
+            digits = 2,
+            eps = 0.001
+          )
+        )
+      )
+    )
+  
+  # Combine group-specific statistics into one annotation
+  stats_label <- paste(
+    cor_stats$cor_label,
+    collapse = "\n"
+  )
+  
+  axis_label <- marker_axis_labels[[marker_name]]
+  
+  if (is.null(axis_label)) {
+    axis_label <- marker_name
+  }
+  
+  ggplot(
+    marker_df,
+    aes(
+      x = Liver,
+      y = Scaffold,
+      color = Group,
+      shape = Group,
+      fill = Group
+    )
+  ) +
+    
+    # Separate regression line for each group
+    geom_smooth(
+      aes(
+        group = Group,
+        color = Group,
+        fill = Group
+      ),
+      method = "lm",
+      formula = y ~ x,
+      se = TRUE,
+      linewidth = 1,
+      alpha = 0.20
+    ) +
+    
+    geom_point(
+      size = 4.5,
+      color = "black",
+      stroke = 0.8
+    ) +
+    
+    scale_color_manual(
+      values = c(
+        "Baseline (W/o STZ)" = "black",
+        "Baseline (With STZ)" = "#7A3E00"   # dark brown
+      )
+    ) +
+    
+    scale_fill_manual(
+      values = c(
+        "Baseline (W/o STZ)" = "black",
+        "Baseline (With STZ)" = "#7A3E00"
+      )
+    ) +
+    
+    scale_shape_manual(
+      values = c(
+        "Baseline (W/o STZ)" = 21,  # filled circle
+        "Baseline (With STZ)" = 22   # filled square
+      )
+    ) +
+    
+    annotate(
+      "text",
+      x = Inf,
+      y = Inf,
+      label = stats_label,
+      hjust = 1.05,
+      vjust = 1.2,
+      size = 4.5,
+      lineheight = 1.2
+    ) +
+    
+    labs(
+      title = marker_name,
+      x = paste0("Liver ", axis_label),
+      y = paste0("IN ", axis_label),
+      color = "Group",
+      fill = "Group",
+      shape = "Group"
+    ) +
+    
+    theme_classic(base_size = 14) +
+    
+    theme(
+      plot.title = element_text(
+        size = 16,
+        face = "bold",
+        hjust = 0.5
+      ),
+      
+      axis.title = element_text(
+        size = 14,
+        face = "bold"
+      ),
+      
+      axis.text = element_text(
+        size = 13,
+        colour = "black"
+      ),
+      
+      axis.line = element_line(
+        colour = "black",
+        linewidth = 0.8
+      ),
+      
+      axis.ticks = element_line(
+        colour = "black",
+        linewidth = 0.8
+      ),
+      
+      axis.ticks.length = grid::unit(
+        0.25,
+        "cm"
+      ),
+      
+      legend.position = "bottom",
+      
+      legend.title = element_text(
+        size = 13,
+        face = "bold"
+      ),
+      
+      legend.text = element_text(
+        size = 12
+      )
+    )
+}
+
+
+
+markers_to_plot <- unique(paired_long$Marker)
+
+correlation_plots <- setNames(
+  lapply(
+    markers_to_plot,
+    make_correlation_plot
+  ),
+  markers_to_plot
+)
+
+correlation_plots

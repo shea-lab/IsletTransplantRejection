@@ -297,33 +297,98 @@ annotation_col <- data.frame(
 rownames(annotation_col) <- colnames(mat_scaled)
 
 
-annotation_colors <- list(
-  Group = c(
-    "Early Rejection" = "#B23A48",    # Tangerine
-    "Late Rejection" =  "#2A6F97"    # Ocean
-  ),
-  Day = c(
-    "7" = "#F28E6B",
-    "14" = "#6FA287",
-    "28" = "#E9C46A"
+# Column annotation
+annotation_col <- data.frame(
+  Day = factor(cd$Day, levels = c("7", "14","28")),
+  Group = factor(
+    cd$Group,
+    levels = c("Early Rejection", "Late Rejection")
   )
 )
 
-pheatmap(
-  mat_scaled,
-  annotation_col = annotation_col,
-  annotation_colors = annotation_colors,
-  cluster_rows = TRUE,
-  cluster_cols = TRUE,
-  show_rownames = TRUE,
-  show_colnames = FALSE,
-  fontsize = 14,
-  fontsize_row = 12,
-  fontsize_col = 10,
-  color = colorRampPalette(c("navy","white","firebrick3"))(100),
-  breaks = seq(-2, 2, length.out = 101),
-  main = "Early Vs Late Rejection Signature"
+rownames(annotation_col) <- colnames(mat_scaled)
+
+stopifnot(
+  identical(rownames(annotation_col), colnames(mat_scaled))
 )
+
+# Top annotation
+ha <- HeatmapAnnotation(
+  df = annotation_col,
+  col = list(
+    Group = c(
+      "Early Rejection" = "#B23A48",    # Tangerine
+      "Late Rejection" =  "#2A6F97"    # Ocean
+    ),
+    Day = c(
+      "7" = "#F28E6B",
+      "14" = "#6FA287",
+      "28" = "#E9C46A"
+    )
+  ),
+  
+  border = TRUE,                # <-- adds borders around annotation cells
+  
+  gp = grid::gpar(
+    col = "grey80",              # border color
+    lwd = 0.5                   # border width
+  ),
+  
+  annotation_name_gp = grid::gpar(fontsize = 12)
+)
+
+Heatmap(
+  mat_scaled,
+  name = "Z-score",
+  
+  top_annotation = ha,
+  
+  # Separate Day 7 and Day 14
+  column_split = annotation_col$Day,
+  
+  # Cluster independently within each day
+  cluster_columns = TRUE,
+  cluster_column_slices = FALSE,
+  
+  column_title = c("Day 7", "Day 14", "Day 28"),
+  
+  # Cluster genes
+  cluster_rows = TRUE,
+  
+  clustering_distance_columns = "euclidean",
+  clustering_method_columns = "complete",
+  
+  clustering_distance_rows = "euclidean",
+  clustering_method_rows = "complete",
+  
+  show_column_names = FALSE,
+  show_row_names = TRUE,
+  
+  row_names_gp = grid::gpar(fontsize = 12),
+  column_title_gp = grid::gpar(
+    fontsize = 14,
+    fontface = "bold"
+  ),
+  
+  col =circlize::colorRamp2(
+    c(min(mat_scaled), 0, max(mat_scaled)),
+    c("navy", "white", "firebrick3")
+  ),
+  
+  # Borders around individual heatmap cells
+  rect_gp = grid::gpar(
+    col = "grey80",
+    lwd = 0.5
+  ),
+  
+  # Gap between Day 7 and Day 14
+  column_gap = grid::unit(4, "mm"),
+  
+  heatmap_legend_param = list(
+    title = "Expression\nZ-score"
+  )
+)
+
 
 
 #PCA Analysis using IN Signature
@@ -360,6 +425,186 @@ ggplot(pca_df, aes(PC1, PC2, color = Group, shape = Group)) +
     axis.line = element_line(color = "black", linewidth = 1),
     panel.grid = element_blank()
   )
+
+
+### Gene Expressions Over Time----
+
+
+vsd <- vst(dds_NODTransplantCounts_EarlyVsLate, blind = FALSE)
+
+mat_temporal <- assay(vsd)
+
+mat_plot <- mat_temporal[
+  stable_gene_names,
+  ,
+  drop = FALSE
+]
+
+# Check that metadata and expression samples align
+stopifnot(
+  identical(colnames(mat_plot), rownames(cd))
+)
+
+
+#  Convert expression matrix to long format
+plot_df <- as.data.frame(mat_plot) %>%
+  rownames_to_column("Gene") %>%
+  pivot_longer(
+    cols = -Gene,
+    names_to = "Sample",
+    values_to = "Expression"
+  ) %>%
+  left_join(
+    cd %>%
+      rownames_to_column("Sample") %>%
+      select(Sample, Day, Group),
+    by = "Sample"
+  ) %>%
+  mutate(
+    Day = factor(
+      Day,
+      levels = c("7", "14","28")
+    ),
+    Group = factor(
+      Group,
+      levels = c(
+        "Early Rejection",
+        "Late Rejection"
+      )
+    )
+  )
+
+# Check for missing metadata
+stopifnot(
+  !any(is.na(plot_df$Day)),
+  !any(is.na(plot_df$Group))
+)
+
+
+gene_trajectory_plot <- ggplot(
+  plot_df,
+  aes(
+    x = Day,
+    y = Expression,
+    color = Group,
+    group = Group
+  )
+) +
+  
+  # Individual samples
+  geom_point(
+    aes(
+      shape = Group,
+      fill = Group
+    ),
+    position = position_jitter(
+      width = 0.06,
+      height = 0
+    ),
+    size = 2,
+    alpha = 0.55,
+    stroke = 0.5
+  ) +
+  
+  # Group mean connecting Day 7 and Day 14
+  stat_summary(
+    fun = mean,
+    geom = "line",
+    linewidth = 0.9
+  ) +
+  
+  # Group mean symbols
+  stat_summary(
+    aes(
+      shape = Group,
+      fill = Group
+    ),
+    fun = mean,
+    geom = "point",
+    size = 3.3,
+    stroke = 0.7
+  ) +
+  
+  # Mean ± SEM
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    width = 0.10,
+    linewidth = 0.6
+  ) +
+  
+  facet_wrap(
+    ~ Gene,
+    scales = "free_y",
+    ncol = 4
+  ) +
+  
+  scale_color_manual(
+    values = c(
+      "Early Rejection" = "#B23A48",    
+      "Late Rejection" =  "#2A6F97" 
+    )
+  ) +
+  
+  scale_fill_manual(
+    values = c(
+      "Early Rejection" = "#B23A48",    
+      "Late Rejection" =  "#2A6F97"
+    )
+  ) +
+  
+  scale_shape_manual(
+    values = c(
+      "Early Rejection" = 15,  # upward triangle
+      "Late Rejection" = 16  # downward triangle
+    )
+  ) +
+  
+  labs(
+    title = "Temporal Expression- Auto-Allo Rejection: Early vs Late Signature",
+    x = "Day post-transplant",
+    y = "Variance-stabilized (VST) expression",
+    color = "Group",
+    fill = "Group",
+    shape = "Group"
+  ) +
+  
+  theme_classic(base_size = 12) +
+  
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      hjust = 0.5,
+      size = 14
+    ),
+    strip.text = element_text(
+      face = "bold.italic",
+      colour = "black",
+      size = 12
+    ),
+    
+    strip.background = element_rect(
+      fill = "transparent",
+      colour = "black",
+      linewidth = 0.6
+    ),
+    
+    panel.border = element_rect(
+      colour = "black",
+      fill = NA,
+      linewidth = 0.5
+    ),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text  = element_text(size = 12),
+    legend.position = "bottom",
+    panel.spacing = grid::unit(0.8, "lines")
+  )
+
+gene_trajectory_plot
+
 
 
 # GSVA Scores Over Time----
@@ -608,7 +853,7 @@ mat_enet <- assay(vsd)
 up_genes_EarlyVsLate <- c("Rsph10b","S1pr5","Erdr1","Pla2g4b","Clec2g","Cstg","Syce1","Fndc7")
 down_genes_EarlyVsLate <- c("Epgn","Tmem132e","Stkld1","Osbpl6","Sycp3")
 gsva_par_sig <- gsvaParam(
-  mat_enet,
+  mat_enet, 
   list(
     Up = up_genes_EarlyVsLate,
     Down = down_genes_EarlyVsLate
@@ -916,4 +1161,414 @@ ggplot() +
     panel.grid.major.x = element_blank(),
     panel.grid.minor.x = element_blank()
   )
+
+
+# 5. Allo Genes Signature Cross Preservatiom----
+# subset samples of D7 and D14
+dds_NODTransplantCounts
+dds_NODTransplantCounts<- DESeqDataSetFromMatrix(NODTransplantCounts, NOD_meta_batch,
+                                                 design = ~ 1)   # dummy design for now
+
+
+# subset samples till day 28 since bith groups are present
+sel <- colData(dds_NODTransplantCounts)$Day < 30 & 
+  colData(dds_NODTransplantCounts)$Day != 0
+dds_NODTransplantCounts_EarlyVsLate <- dds_NODTransplantCounts[, sel]
+
+
+dds_NODTransplantCounts_EarlyVsLate$Batch       <- factor(dds_NODTransplantCounts_EarlyVsLate$Batch)
+dds_NODTransplantCounts_EarlyVsLate$LibraryPrep <- factor(dds_NODTransplantCounts_EarlyVsLate$LibraryPrep)
+dds_NODTransplantCounts_EarlyVsLate$Group <- factor(
+  dds_NODTransplantCounts_EarlyVsLate$Group,
+  levels = c("Late Rejection","Early Rejection")  # order sets baseline
+)
+dds_NODTransplantCounts_EarlyVsLate$Treatment <- factor(dds_NODTransplantCounts_EarlyVsLate$Treatment,
+                                                        levels = c("Low Dose", "High Dose"))
+#Bin timepoints for analysis
+colData(dds_NODTransplantCounts_EarlyVsLate)$Day <-
+  ifelse(colData(dds_NODTransplantCounts_EarlyVsLate)$Day >= 22,
+         28,
+         colData(dds_NODTransplantCounts_EarlyVsLate)$Day)
+
+dds_NODTransplantCounts_EarlyVsLate$Day <- factor(dds_NODTransplantCounts_EarlyVsLate$Day,
+                                                  levels = c("7", "14","28"))
+
+design(dds_NODTransplantCounts_EarlyVsLate) <- ~ Treatment+ Day + Group
+dds_NODTransplantCounts_EarlyVsLate <- DESeq(dds_NODTransplantCounts_EarlyVsLate)
+design(dds_NODTransplantCounts_EarlyVsLate)
+resultsNames(dds_NODTransplantCounts_EarlyVsLate)
+res_NOD_EarlyVsLate <- results(dds_NODTransplantCounts_EarlyVsLate,
+                               name = "Group_Early.Rejection_vs_Late.Rejection")
+
+vsd <- vst(dds_NODTransplantCounts_EarlyVsLate, blind = FALSE)
+mat <- assay(vsd)
+cd <- as.data.frame(colData(dds_NODTransplantCounts_EarlyVsLate))
+design_enet <- model.matrix(~ Group, data = cd)
+mat_enet <- limma::removeBatchEffect(
+  mat,
+  covariates = model.matrix(~ Day+Treatment, data = cd)[, -1, drop = FALSE],
+  design = design_enet
+)
+
+
+#Plot Heatmp and PCA using Selected Genes 
+AlloaCD40L_signature <- c(
+  "Cd5l", "Cpa6", "Ebf4", "Ifi30", "Cmah",
+  "Hs3st3a1", "Snhg11", "Tspoap1", "Tymp", "Sarm1",
+  "Ceacam19", "Ptprf", "Gp5", "Eda", "Pla2g2d",
+  "Flywch2", "Fibin", "Lurap1", "Cyp2j9", "Prrg1",
+  "Treml1", "Ltc4s", "Dok5", "Fabp3", "Nrbp2"
+)
+
+# AlloSyn_signature <- c(
+#   "Hipk4", "Lncpint", "Malat1", "Myh3", "Rep15", "Trpm6", "Cd59b",
+#   "Hlf", "Bmp5", "S1pr5", "Cbs", "Tctn2", "Gdf3", "Shisa9", "Ido2",
+#   "Vtn", "Ifitm5", "Emx2os", "Fsip1", "Gfra1", "Col6a5", "Lhfpl4",
+#   "Myo18b", "Myo3b", "Sybu", "Dnah8", "Rragb"
+# )
+setdiff(AlloaCD40L_signature, rownames(mat_enet))
+mat_stable <- mat_enet[AlloaCD40L_signature, , drop = FALSE]
+mat_scaled <- t(scale(t(mat_stable)))
+annotation_col <- data.frame(
+  Day = cd$Day,
+  Group = cd$Group
+)
+rownames(annotation_col) <- colnames(mat_scaled)
+
+
+# Column annotation
+annotation_col <- data.frame(
+  Day = factor(cd$Day, levels = c("7", "14", "28")),
+  Group = factor(
+    cd$Group,
+    levels = c("Early Rejection", "Late Rejection")
+  )
+)
+
+rownames(annotation_col) <- colnames(mat_scaled)
+
+stopifnot(
+  identical(rownames(annotation_col), colnames(mat_scaled))
+)
+
+# Top annotation
+ha <- HeatmapAnnotation(
+  df = annotation_col,
+  col = list(
+    Group = c(
+      "Early Rejection" = "#B23A48",    # Tangerine
+      "Late Rejection" =  "#2A6F97"    # Ocean
+    ),
+    Day = c(
+      "7" = "#F28E6B",
+      "14" = "#6FA287",
+      "28" = "#E9C46A"
+    )
+  ),
+  
+  border = TRUE,                # <-- adds borders around annotation cells
+  
+  gp = grid::gpar(
+    col = "grey80",              # border color
+    lwd = 0.5                   # border width
+  ),
+  
+  annotation_name_gp = grid::gpar(fontsize = 12)
+)
+
+
+Heatmap(
+  mat_scaled,
+  name = "Z-score",
+  
+  top_annotation = ha,
+  
+  # Separate Day 7 and Day 14
+  column_split = annotation_col$Day,
+  
+  # Cluster independently within each day
+  cluster_columns = TRUE,
+  cluster_column_slices = FALSE,
+  
+  column_title = c("Day 7", "Day 14", "Day 28"),
+  
+  # Cluster genes
+  cluster_rows = TRUE,
+  
+  clustering_distance_columns = "euclidean",
+  clustering_method_columns = "complete",
+  
+  clustering_distance_rows = "euclidean",
+  clustering_method_rows = "complete",
+  
+  show_column_names = FALSE,
+  show_row_names = TRUE,
+  
+  row_names_gp = grid::gpar(fontsize = 12),
+  column_title_gp = grid::gpar(
+    fontsize = 14,
+    fontface = "bold"
+  ),
+  
+  col =circlize::colorRamp2(
+    c(min(mat_scaled), 0, max(mat_scaled)),
+    c("navy", "white", "firebrick3")
+  ),
+  
+  # Borders around individual heatmap cells
+  rect_gp = grid::gpar(
+    col = "grey80",
+    lwd = 0.5
+  ),
+  
+  # Gap between Day 7 and Day 14
+  column_gap = grid::unit(4, "mm"),
+  
+  heatmap_legend_param = list(
+    title = "Expression\nZ-score"
+  )
+)
+
+#PCA Analysis
+mat_pca <- t(mat_stable)
+pca <- prcomp(mat_pca, scale. = TRUE)
+pca_df <- data.frame(
+  PC1 = pca$x[,1],
+  PC2 = pca$x[,2],
+  Group = cd$Group
+)
+
+# Define colors & shapes
+group_colors <- c( "Early Rejection" = "#B23A48",    # Tangerine
+                   "Late Rejection" =  "#2A6F97" )
+group_shapes <- c("Early Rejection" = 15, "Late Rejection" = 16)
+
+ggplot(pca_df, aes(PC1, PC2, color = Group,, shape = Group)) +
+  geom_point(aes(fill = Group), size = 5, stroke = 1.2) +
+  stat_ellipse(geom = "polygon", alpha = 0.2, aes(fill = Group), show.legend = FALSE, level = 0.7) +
+  scale_color_manual(values = group_colors) +
+  scale_fill_manual(values = group_colors) +
+  scale_shape_manual(values = group_shapes) +
+  theme_classic(base_size = 18) +
+  labs(
+    title = "PCA of Stable Elastic Net Genes",
+    x = paste0("PC1 (", round(100 * summary(pca)$importance[2,1],1), "%)"),
+    y = paste0("PC2 (", round(100 * summary(pca)$importance[2,2],1), "%)")
+  ) +
+  theme(
+    legend.position = "top",
+    axis.title = element_text(size = 20, face = "bold"),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 1),
+    panel.grid = element_blank()
+  )
+
+
+### Gene Expressions Over Time
+
+dds_use <- dds_NODTransplantCounts
+
+## 1) Remove sample 15402-JR-8,37,55 (Excluding early rejection samples beyond Day 28 since these are scattered and not enough n to do stats)
+dds_use <- dds_use[, !(colnames(dds_use) %in% c("15402-JR-37", "15402-JR-8","15402-JR-55"))]
+
+## 2) Recode Day in metadata
+cd <- as.data.frame(colData(dds_use))
+
+cd$Day <- as.numeric(as.character(cd$Day))
+unique(cd$Day)
+#Binning of Days for analysis
+cd$Day[cd$Day %in% c(22, 23, 26)] <- 28
+cd$Day[cd$Day == 45] <- 42
+cd$Day[cd$Day == 55] <- 56
+cd$Day[cd$Day %in% c(61, 63, 71)] <- 70
+
+## Put corrected Day back into dds
+colData(dds_use)$Day <- cd$Day
+table(cd$Day,cd$Group)
+
+colData(dds_use)$Day <- factor(colData(dds_use)$Day,
+                               levels = c(0,7, 14, 28, 42, 56, 70))
+
+dds_use$Group <- factor(
+  dds_use$Group,
+  levels = c("Late Rejection","Early Rejection")  # order sets baseline
+)
+levels(dds_use$Group)
+
+dds_use$Day
+# VST normalization
+vsd <- vst(dds_use, blind = FALSE)
+mat_temporal<- assay(vsd)
+mat_plot <- mat_temporal[
+#  AlloaCD40L_signature,
+  AlloSyn_signature,
+  ,
+  drop = FALSE
+]
+
+# Check that metadata and expression samples align
+stopifnot(
+  identical(colnames(mat_plot), rownames(cd))
+)
+
+
+#  Convert expression matrix to long format
+plot_df <- as.data.frame(mat_plot) %>%
+  rownames_to_column("Gene") %>%
+  pivot_longer(
+    cols = -Gene,
+    names_to = "Sample",
+    values_to = "Expression"
+  ) %>%
+  left_join(
+    cd %>%
+      rownames_to_column("Sample") %>%
+      select(Sample, Day, Group),
+    by = "Sample"
+  ) %>%
+  mutate(
+    Day = factor(
+      Day,
+      levels = c("0","7","14","28","42","56","70")
+    ),
+    Group = factor(
+      Group,
+      levels = c(
+        "Early Rejection",
+        "Late Rejection"
+      )
+    )
+  )
+
+# Check for missing metadata
+stopifnot(
+  !any(is.na(plot_df$Day)),
+  !any(is.na(plot_df$Group))
+)
+
+
+gene_trajectory_plot <- ggplot(
+  plot_df,
+  aes(
+    x = Day,
+    y = Expression,
+    color = Group,
+    group = Group
+  )
+) +
+  
+  # Individual samples
+  geom_point(
+    aes(
+      shape = Group,
+      fill = Group
+    ),
+    position = position_jitter(
+      width = 0.06,
+      height = 0
+    ),
+    size = 2,
+    alpha = 0.55,
+    stroke = 0.5
+  ) +
+  
+  # Group mean connecting Day 7 and Day 14
+  stat_summary(
+    fun = mean,
+    geom = "line",
+    linewidth = 0.9
+  ) +
+  
+  # Group mean symbols
+  stat_summary(
+    aes(
+      shape = Group,
+      fill = Group
+    ),
+    fun = mean,
+    geom = "point",
+    size = 3.3,
+    stroke = 0.7
+  ) +
+  
+  # Mean ± SEM
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    width = 0.10,
+    linewidth = 0.6
+  ) +
+  
+  facet_wrap(
+    ~ Gene,
+    scales = "free_y",
+    ncol = 4
+  ) +
+  
+  scale_color_manual(
+    values = c(
+      "Early Rejection" = "#B23A48",    # Tangerine
+      "Late Rejection" =  "#2A6F97"
+    )
+  ) +
+  
+  scale_fill_manual(
+    values = c(
+      "Early Rejection" = "#B23A48",    # Tangerine
+      "Late Rejection" =  "#2A6F97"
+    )
+  ) +
+  
+  scale_shape_manual(
+    values = c(
+      "Early Rejection" = 15,  # upward triangle
+      "Late Rejection" = 16  # downward triangle
+    )
+  ) +
+  
+  labs(
+    title = "Temporal Expression- Allo vs Syn Signature in Auto-Allo NOD",
+    x = "Day post-transplant",
+    y = "Variance-stabilized (VST) expression",
+    color = "Group",
+    fill = "Group",
+    shape = "Group"
+  ) +
+  
+  theme_classic(base_size = 12) +
+  
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      hjust = 0.5,
+      size = 14
+    ),
+    strip.text = element_text(
+      face = "bold.italic",
+      colour = "black",
+      size = 12
+    ),
+    
+    strip.background = element_rect(
+      fill = "transparent",
+      colour = "black",
+      linewidth = 0.6
+    ),
+    
+    panel.border = element_rect(
+      colour = "black",
+      fill = NA,
+      linewidth = 0.5
+    ),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text  = element_text(size = 12),
+    legend.position = "bottom",
+    panel.spacing = grid::unit(0.8, "lines")
+  )
+
+gene_trajectory_plot
 
