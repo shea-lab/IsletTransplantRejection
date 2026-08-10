@@ -4723,3 +4723,221 @@ correlation_plots <- setNames(
 )
 
 correlation_plots
+
+#9. Long Term aCD40L-Allo Flow Analysis----
+getwd()
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+library(ggplot2)
+
+LT_AlloFlow <- read_csv(
+  "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Islet Rejection Flow/AdvScienceRevision_Flow/Long Term Anti-CD40L Allo Flow/LongTerm_aCD40LAllogeneic_Flow.csv",
+  show_col_types = FALSE
+) %>%
+  select(where(~ !all(is.na(.))))
+library(dplyr)
+
+LT_AlloFlow <- LT_AlloFlow %>%
+  filter(!(Time == 70 & MouseID %in% c("R96(4L)", "R97(NL)")))
+
+LT_AlloFlow$MouseID <- factor(LT_AlloFlow$MouseID)
+
+LT_AlloFlow$Time <- factor(
+  LT_AlloFlow$Time,
+  levels = c(14,28,42,70,106,175)
+)
+colnames(LT_AlloFlow)
+ocean_blue <- "#1F77B4"
+markers <- c(
+  "CD45+ Immune Cells | Freq. of Live Cells (%)",
+  "Ly6G+ Neutrophils | Freq. of CD45+ Immune Cells (%)",
+  "F4 80+ Macrophages | Freq. of CD45+ Immune Cells (%)",
+  "CCR2+ Macrophages | Freq. of CD45+ Immune Cells (%)",
+  "CD80+ Macrophages | Freq. of CD45+ Immune Cells (%)",
+  "CD80+ Macrophages | Freq. of F4 80+ Macrophages (%)" ,
+  "CD86+ Macrophages | Freq. of CD45+ Immune Cells (%)",
+  "CX3CR1+ Macrophages | Freq. of CD45+ Immune Cells (%)",
+  "CX3CR1+ Macrophages | Freq. of F4 80+ Macrophages (%)",
+  "Ly6C+ Monocytes | Freq. of CD45+ Immune Cells (%)",
+  "CD3+ T Cells | Freq. of CD45+ Immune Cells (%)",
+  "CD4+ T Cells | Freq. of CD45+ Immune Cells (%)",
+  "CD43+ CD4 T Cells | Freq. of CD45+ Immune Cells (%)",
+  "CD8+ T Cells | Freq. of CD45+ Immune Cells (%)",
+  "CD43+ CD8 T Cells | Freq. of CD45+ Immune Cells (%)",
+  "CD19+ B Cells | Freq. of CD45+ Immune Cells (%)",
+  "CD43+ B Cells | Freq. of CD45+ Immune Cells (%)",
+  "CD11c+MHC-II+ Dendritic Cells | Freq. of CD45+ Immune Cells (%)",
+  "CCR2+ Dendritic Cells | Freq. of CD45+ Immune Cells (%)",
+  "CD80+ Dendritic Cells | Freq. of CD45+ Immune Cells (%)",
+  "CD80+ Dendritic Cells | Freq. of Dendritic Cells (%)" ,
+  "CD86+ Dendritic Cells | Freq. of CD45+ Immune Cells (%)",
+  "CX3CR1+ Dendritic Cells | Freq. of CD45+ Immune Cells (%)",
+  "CX3CR1+ Dendritic Cells | Freq. of Dendritic Cells (%)"
+)
+
+plot_longitudinal <- function(marker){
+  plot_title <- trimws(sub("\\|.*", "", marker))
+  y_label <- trimws(sub(".*\\|", "", marker))
+  df <- LT_AlloFlow %>%
+    select(MouseID, Time, all_of(marker)) %>%
+    rename(Value = all_of(marker)) %>%
+    drop_na(Value)
+  
+  model <- lmer(
+    Value ~ Time + (1 | MouseID),
+    data = df
+  )
+  
+  p_time <- anova(model)["Time", "Pr(>F)"]
+  
+  summary_df <- df %>%
+    group_by(Time) %>%
+    summarise(
+      Mean = mean(Value),
+      SEM = sd(Value) / sqrt(n()),
+      .groups = "drop"
+    )
+  
+  g <- ggplot(
+    df,
+    aes(
+      x = Time,
+      y = Value,
+      group = MouseID
+    )
+  ) +
+    
+    # Individual mouse trajectories
+    geom_line(
+      colour = "#8EC7E8",
+      linewidth = 0.8,
+      alpha = 0.8
+    ) +
+    
+    geom_point(
+      colour = "#5FA9D3",
+      fill = "#B9DDF1",
+      shape = 21,
+      stroke = 0.8,
+      size = 3.2,
+      alpha = 0.9
+    ) +
+    
+    # Mean ± SEM
+    geom_errorbar(
+      data = summary_df,
+      aes(
+        x = Time,
+        ymin = Mean - SEM,
+        ymax = Mean + SEM
+      ),
+      width = 0.15,
+      colour = ocean_blue,
+      linewidth = 1,
+      inherit.aes = FALSE
+    ) +
+    
+    geom_line(
+      data = summary_df,
+      aes(
+        x = Time,
+        y = Mean,
+        group = 1
+      ),
+      colour = ocean_blue,
+      linewidth = 1.5,
+      inherit.aes = FALSE
+    ) +
+    
+    geom_point(
+      data = summary_df,
+      aes(
+        x = Time,
+        y = Mean
+      ),
+      shape = 21,
+      fill = ocean_blue,
+      colour = ocean_blue,
+      size = 4.5,
+      inherit.aes = FALSE
+    ) +
+    
+    annotate(
+      "text",
+      x = 5.7,
+      y = max(df$Value, na.rm = TRUE) * 1.08,
+      label = paste0(
+        "Mixed model\nP = ",
+        signif(p_time, 3)
+      ),
+      hjust = 1,
+      size = 6.5,
+      fontface = "bold"
+    ) +
+    
+    labs(
+      x = "Days post-transplant",
+      y = y_label,
+      title = plot_title
+    ) +
+    
+    scale_y_continuous(
+      expand = expansion(mult = c(0.05, 0.18))
+    ) +
+    
+    theme_classic(base_size = 18) +
+    
+    theme(
+      axis.title.x = element_text(
+        face = "bold",
+        size = 22,
+        margin = ggplot2::margin(t = 12)
+      ),
+      axis.title.y = element_text(
+        face = "bold",
+        size = 22,
+        margin = ggplot2::margin(r = 12)
+      ),
+      axis.text.x = element_text(
+        colour = "black",
+        size = 18
+      ),
+      axis.text.y = element_text(
+        colour = "black",
+        size = 18
+      ),
+      axis.line = element_line(linewidth = 0.8),
+      axis.ticks = element_line(linewidth = 0.8),
+      plot.title = element_text(
+        face = "bold",
+        size = 24,
+        hjust = 0.5,
+        margin = ggplot2::margin(b = 12)
+      )
+    )
+  
+  return(g)
+}
+dir.create("Longitudinal_Flow_Plots",
+           showWarnings = FALSE)
+
+for(i in markers){
+  
+  p <- plot_longitudinal(i)
+  
+  ggsave(
+    filename=paste0(
+      "Longitudinal_Flow_Plots/",
+      make.names(i),
+      ".pdf"
+    ),
+    plot=p,
+    width=6.5,
+    height=5.65,
+    dpi=600
+  )
+}
