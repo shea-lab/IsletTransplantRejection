@@ -1572,3 +1572,197 @@ gene_trajectory_plot <- ggplot(
 
 gene_trajectory_plot
 
+# 6. Luminex Analysis--
+# getwd()
+# library(readr)
+# library(dplyr)
+# library(tidyverse)
+# library(lme4)
+# library(lmerTest)
+# library(emmeans)
+# library(ggplot2)
+# 
+# Scaf_IsTx_Luminex <- read_csv(
+#   "/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Luminex Data/IsletTransplantScafLuminex.csv",
+#   show_col_types = FALSE
+# ) %>%
+#   # Remove columns where every value is NA
+#   select(where(~ !all(is.na(.)))) %>%
+#   # Remove rows where every value is NA
+#   filter(!if_all(everything(), is.na))
+# 
+# Scaf_IsTx_Luminex
+# colnames(Scaf_IsTx_Luminex)
+# unique(Scaf_IsTx_Luminex$Sample)
+# unique(Scaf_IsTx_Luminex$Day)
+# unique(Scaf_IsTx_Luminex$Group)
+# table(Scaf_IsTx_Luminex$Day,Scaf_IsTx_Luminex$Group)
+# Scaf_IsTx_Luminex <- Scaf_IsTx_Luminex %>%
+#   rename(
+#     Mouse = `Mouse \nNumber`,
+#     Total_Protein = `Total protein\n(ng/ul)`,
+#     IL2 = `IL-2\r\n pg/ml`,
+#     IL6 = `IL-6\r\n pg/ml`,
+#     IFNg = `IFNg\r\n pg/ml`,
+#     GMCSF = `GM-CSF\r\n pg/ml`,
+#     TNFa = `TNFa\r\n pg/ml`
+#   )
+# 
+# Scaf_IsTx_Luminex <- Scaf_IsTx_Luminex %>%
+#   mutate(
+#     Total_Protein_mg_ml = Total_Protein / 1000, #Convery to mg/ml
+#     
+#     IL2_norm   = IL2 / Total_Protein_mg_ml, #pg of cytokine/mg protein
+#     IL6_norm   = IL6 / Total_Protein_mg_ml,
+#     IFNg_norm  = IFNg / Total_Protein_mg_ml,
+#     GMCSF_norm = GMCSF / Total_Protein_mg_ml,
+#     TNFa_norm  = TNFa / Total_Protein_mg_ml
+#   )
+# 
+# 
+# Scaf_IsTx_Luminex <- Scaf_IsTx_Luminex %>%
+#   mutate(
+#     Day_plot = case_when(
+#       Day %in% c(22, 23, 26, 28) ~ 28,
+#       Day %in% c(55, 56) ~ 56,
+#       Day %in% c(63, 71) ~ 70,
+#       TRUE ~ Day
+#     )
+#   )
+# Luminex_long <- Scaf_IsTx_Luminex %>%
+#   select(
+#     Sample, Mouse, Day, Day_plot, Group,
+#     IL2_norm, IL6_norm, IFNg_norm, GMCSF_norm, TNFa_norm
+#   ) %>%
+#   pivot_longer(
+#     cols = ends_with("_norm"),
+#     names_to = "Cytokine",
+#     values_to = "Normalized_Conc"
+#   ) %>%
+#   mutate(
+#     Cytokine = recode(
+#       Cytokine,
+#       IL2_norm = "IL-2",
+#       IL6_norm = "IL-6",
+#       IFNg_norm = "IFN-\u03B3",
+#       GMCSF_norm = "GM-CSF",
+#       TNFa_norm = "TNF-\u03B1"
+#     )
+#   )
+# 
+# # Keep only the four cytokines
+# Luminex_plot <- Luminex_long %>%
+#   dplyr::filter(Cytokine != "GM-CSF") %>%
+#   dplyr::mutate(
+#     Day_factor = factor(
+#       Day_plot,
+#       levels = c(0, 7, 28, 56, 70)
+#     ),
+#     x_base = as.numeric(Day_factor),
+#     
+#     # Fixed position for each group
+#     x_pos = dplyr::case_when(
+#       Group == "Early Rejection" ~ x_base - 0.18,
+#       Group == "Late Rejection"  ~ x_base + 0.18
+#     )
+#   )
+# Luminex_summary <- Luminex_plot %>%
+#   dplyr::group_by(
+#     Cytokine,
+#     Day_plot,
+#     Group,
+#     x_pos
+#   ) %>%
+#   dplyr::summarise(
+#     mean_conc = mean(Normalized_Conc, na.rm = TRUE),
+#     n = sum(!is.na(Normalized_Conc)),
+#     se = sd(Normalized_Conc, na.rm = TRUE) / sqrt(n),
+#     .groups = "drop"
+#   )
+# 
+# ggplot() +
+#   
+#   # Mean bars
+#   geom_col(
+#     data = Luminex_summary,
+#     aes(
+#       x = x_pos,
+#       y = mean_conc,
+#       fill = Group
+#     ),
+#     width = 0.32,
+#     color = "black",
+#     linewidth = 0.7,
+#     alpha = 0.55
+#   ) +
+#   
+#   # Mean +/- SEM
+#   geom_errorbar(
+#     data = Luminex_summary,
+#     aes(
+#       x = x_pos,
+#       ymin = mean_conc - se,
+#       ymax = mean_conc + se
+#     ),
+#     width = 0.10,
+#     linewidth = 0.7
+#   ) +
+#   
+#   # Individual samples
+#   geom_point(
+#     data = Luminex_plot,
+#     aes(
+#       x = x_pos,
+#       y = Normalized_Conc,
+#       color = Group
+#     ),
+#     position = position_jitter(
+#       width = 0.04,
+#       height = 0
+#     ),
+#     size = 2.5,
+#     alpha = 1
+#   ) +
+#   
+#   facet_wrap(
+#     ~ Cytokine,
+#     scales = "free_y",
+#     ncol = 2
+#   ) +
+#   
+#   scale_x_continuous(
+#     breaks = 1:5,
+#     labels = c("0", "7", "28", "56", "70")
+#   ) +
+#   
+#   scale_fill_manual(
+#     values = c(
+#       "Early Rejection" = "#E89A9F",
+#       "Late Rejection"  = "#91B9D4"
+#     )
+#   ) +
+#   
+#   # Keep individual points darker
+#   scale_color_manual(
+#     values = c(
+#       "Early Rejection" = "#B23A48",
+#       "Late Rejection"  = "#2A6F97"
+#     )
+#   )+
+#   
+#   labs(
+#     x = "Days Post Transplant",
+#     y = "Cytokine concentration (pg/mg total protein)",
+#     fill = NULL,
+#     color = NULL
+#   ) +
+#   
+#   theme_classic(base_size = 16) +
+#   
+#   theme(
+#     strip.text = element_text(
+#       size = 16,
+#       face = "bold"
+#     ),
+#     legend.position = "top"
+#   )

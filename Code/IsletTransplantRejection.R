@@ -4739,7 +4739,7 @@ LT_AlloFlow <- read_csv(
   show_col_types = FALSE
 ) %>%
   select(where(~ !all(is.na(.))))
-library(dplyr)
+
 
 LT_AlloFlow <- LT_AlloFlow %>%
   filter(!(Time == 70 & MouseID %in% c("R96(4L)", "R97(NL)")))
@@ -4941,3 +4941,8 @@ for(i in markers){
     dpi=600
   )
 }
+
+
+
+
+
