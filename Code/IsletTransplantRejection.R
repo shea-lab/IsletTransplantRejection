@@ -4943,6 +4943,311 @@ for(i in markers){
 }
 
 
+#10. Baseline Transcriptomics----
+# Allo Transplant Metadata Importing
+meta_batch3 <- read.table("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Batch3/Metadata_Batch3.csv", sep=",", header=T) # Metadata file
+meta_batch4 <- read.table("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Batch4/Metadata_Batch4.csv", sep=",", header=T) # Metadata file
+meta_baseline <- read.table("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Baseline IN/Metadata_Baseline.csv", sep=",", header=T) # Metadata file
+
+meta_batch3 <- as.data.frame(meta_batch3)
+meta_batch4 <- as.data.frame(meta_batch4)
+meta_baseline <- as.data.frame(meta_baseline)
+# Merge metadata by columns (i.e., add samples from Batch 2 to Batch 1)
+meta_combined <- rbind(meta_batch3,meta_batch4,meta_baseline)
+
+# Preview the combined metadata
+head(meta_combined)
+unique(meta_combined$Group)
+
+#All Transplant Counts Data Importing
+
+counts_batch3 <- as.data.frame(read.table("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Batch3/IsTx_gene_expected_count_annot_batch3.csv", sep=",", header=T,check.names = FALSE)) # Raw counts file
+counts_batch3 <- na.omit(counts_batch3)
+
+counts_batch4 <- as.data.frame(read.table("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Batch4/IsTx_gene_expected_count_annot_batch4.csv", sep=",", header=T,check.names = FALSE)) # Raw counts file
+counts_batch4 <- na.omit(counts_batch4)
+
+counts_baseline <- as.data.frame(read.table("/Users/jyotirmoyroy/Desktop/Islet Transplant Rejection Paper/Sequencing Data/Baseline IN/BaselineIN_counts.csv", sep=",", header=T,check.names = FALSE)) # Raw counts file
+counts_baseline <- na.omit(counts_baseline)
 
 
+
+counts_batch3 <- counts_batch3[!duplicated(counts_batch3[, 1]), ]
+genes <- counts_batch3[, 1]
+rownames(counts_batch3) <- genes
+counts_batch3 <- counts_batch3[, -1]
+
+counts_batch4 <- counts_batch4[!duplicated(counts_batch4[, 1]), ]
+genes <- counts_batch4[, 1]
+rownames(counts_batch4) <- genes
+counts_batch4 <- counts_batch4[, -1]
+
+counts_baseline <- counts_baseline[!duplicated(counts_baseline[, 1]), ]
+genes <- counts_baseline[, 1]
+rownames(counts_baseline) <- genes
+counts_baseline <- counts_baseline[, -1]
+#Combine counts data
+# First merge counts_batch1 and counts_batch2
+combined_counts <- merge(counts_batch3, counts_batch4, by = "row.names", all = TRUE)
+# Rename the Row.names column back
+rownames(combined_counts) <- combined_counts$Row.names
+combined_counts$Row.names <- NULL
+# Then merge the result with counts_batch3
+combined_counts <- merge(combined_counts, counts_baseline, by = "row.names", all = TRUE)
+# Rename the Row.names column back
+rownames(combined_counts) <- combined_counts$Row.names
+combined_counts$Row.names <- NULL
+
+
+# Identify the samples to keep (not "Technical Rejection")
+samples_to_keep <- meta_combined$Samples[meta_combined$Group != "Technical Rejection"]
+
+# Filter the meta_combined data
+meta_combined <- meta_combined[meta_combined$Group != "Technical Rejection", ]
+
+# Filter the combined_counts data to keep only columns corresponding to samples_to_keep
+combined_counts <- combined_counts[, colnames(combined_counts) %in% samples_to_keep]
+
+
+# Preview the combined dataset
+head(combined_counts)
+
+#.Preprocessing and Cleaning
+
+# Remove zero and low expressed genes
+combined_counts <- combined_counts[, meta_combined$Samples]  # Ensure Sample_IDs match column names in combined_counts
+
+IsletTransplantCounts_Baseline <- flexiDEG.function1(combined_counts, meta_combined, # Run Function 1
+                                            convert_genes = F, exclude_riken = T, exclude_pseudo = F,
+                                            batches = F, quality = T, variance = F,use_pseudobulk = F) # Select filters: 0, 0, 0
+
+#Remove undefined and pseudogenes
+remove_pattern <- "^Gm[0-9]|^AC[0-9]|^AL[0-9]|^AI[0-9]|^AW[0-9]|^AF[0-9]|^BB[0-9]|^BC[0-9]|^CT[0-9]|^CAAA|^BX[0-9]|^CN[0-9]|^CR[0-9]|^C[0-9]{4,}|^Olfr"
+rows_to_remove <- grep(remove_pattern, rownames(IsletTransplantCounts_Baseline)) #Remove Gm genes
+IsletTransplantCounts_Baseline <- IsletTransplantCounts_Baseline[-rows_to_remove, ]
+# connect to Ensembl mouse database
+
+options(timeout = 120)
+
+
+
+pseudo_genes <- gene_info$mgi_symbol[grep("pseudogene", gene_info$gene_biotype)]
+# remove them
+IsletTransplantCounts_Baseline <- IsletTransplantCounts_Baseline[
+  !(rownames(IsletTransplantCounts_Baseline) %in% pseudo_genes), ]
+
+
+# Color palettes
+coul <- colorRampPalette(brewer.pal(11, "RdBu"))(100) # Palette for gene heatmaps
+coul_gsva <- colorRampPalette(brewer.pal(11, "PRGn"))(100) # Palette for gsva heatmaps
+colSide <- flexiDEG.colors(meta_combined)
+unique_colSide <- unique(colSide)
+
+# 3.Create DESqEQ Object 
+
+IsletTransplantCounts_Baseline <- as.matrix(IsletTransplantCounts_Baseline)
+storage.mode(IsletTransplantCounts_Baseline) <- "integer"
+
+dds_IsletTransplantBaseline <- DESeqDataSetFromMatrix(IsletTransplantCounts_Baseline, meta_combined,
+                                              design = ~ 1)   # dummy design for now
+
+sel <- colData(dds_IsletTransplantBaseline)$Group %in% c("Control Allogeneic","Control Syngeneic","Baseline C57BL/6", "Baseline  C57BL/6+STZ" ) & colData(dds_IsletTransplantBaseline)$Day %in% c(14)
+dds_IsletTransplant_BaselineD14<- dds_IsletTransplantBaseline[, sel]
+dds_IsletTransplant_BaselineD14$Group <- droplevels(
+  factor(dds_IsletTransplant_BaselineD14$Group)
+)
+# Confirm sample numbers
+table(dds_IsletTransplant_BaselineD14$Group)
+
+
+AlloSyn_Signature <- c("Myo18b","Cd59b","Rep15","Shisa9","Rragb","Gdf3",
+                       "Lncpint","Ifitm5","Malat1","Myo3b","Hipk4","S1pr5",
+                       "Trpm6","Tctn2","Lhfpl4","Ido2","Fsip1","Emx2os",
+                       "Hlf","Gfra1","Bmp5","Col6a5","Myh3","Cbs","Vtn","Dnah8","Sybu")
+
+vsd_D14 <- vst(
+  dds_IsletTransplant_BaselineD14,
+  blind = TRUE
+)
+
+vst_mat <- assay(vsd_D14)
+
+# Retain signature genes present in the dataset
+signature_present <- intersect(AlloSyn_Signature, rownames(vst_mat))
+signature_missing <- setdiff(AlloSyn_Signature, rownames(vst_mat))
+
+message("Signature genes retained: ", length(signature_present))
+message(
+  "Missing signature genes: ",
+  ifelse(
+    length(signature_missing) == 0,
+    "None",
+    paste(signature_missing, collapse = ", ")
+  )
+)
+
+mat_signature <- vst_mat[signature_present, , drop = FALSE]
+
+# Remove genes with zero variance across samples
+gene_variance <- apply(mat_signature, 1, var, na.rm = TRUE)
+mat_signature <- mat_signature[
+  is.finite(gene_variance) & gene_variance > 0,
+  ,
+  drop = FALSE
+]
+
+# Sample metadata in the same order as the expression matrix
+cd <- as.data.frame(
+  colData(dds_IsletTransplant_BaselineD14)[
+    colnames(mat_signature),
+    ,
+    drop = FALSE
+  ]
+)
+groups_D14 <- c(
+  "Control Allogeneic",
+  "Control Syngeneic",
+  "Baseline C57BL/6",
+  "Baseline  C57BL/6+STZ"
+)
+cd$Group <- factor(
+  cd$Group,
+  levels = groups_D14
+)
+
+stopifnot(identical(rownames(cd), colnames(mat_signature)))
+
+
+# 4. Heatmap
+
+
+# Row-wise Z-score for visualization
+mat_scaled <- t(scale(t(mat_signature)))
+
+# Remove any rows that could not be scaled
+mat_scaled <- mat_scaled[
+  apply(mat_scaled, 1, function(x) all(is.finite(x))),
+  ,
+  drop = FALSE
+]
+
+annotation_col <- data.frame(
+  Group = cd$Group,
+  row.names = rownames(cd)
+)
+
+stopifnot(
+  identical(rownames(annotation_col), colnames(mat_scaled))
+)
+
+group_colors <- c(
+  "Control Allogeneic" = "#E60000",
+  "Control Syngeneic" = "#2E6F40",
+  "Baseline C57BL/6" = "#000000",
+  "Baseline  C57BL/6+STZ" = "#B8860B"
+)
+
+
+
+# 5. PCA using signature genes
+
+# Samples in rows and genes in columns
+mat_pca <- t(mat_signature)
+
+# Remove any genes with zero variance
+pca_gene_sd <- apply(mat_pca, 2, sd, na.rm = TRUE)
+mat_pca <- mat_pca[
+  ,
+  is.finite(pca_gene_sd) & pca_gene_sd > 0,
+  drop = FALSE
+]
+
+pca <- prcomp(
+  mat_pca,
+  center = TRUE,
+  scale. = TRUE
+)
+
+percent_variance <- 100 * (
+  pca$sdev^2 / sum(pca$sdev^2)
+)
+
+pca_df <- data.frame(
+  Sample = rownames(pca$x),
+  PC1 = pca$x[, 1],
+  PC2 = pca$x[, 2],
+  Group = cd[rownames(pca$x), "Group"]
+)
+
+# Requested symbols:
+# Baseline C57BL/6 = circle
+# Baseline C57BL/6+STZ = square
+group_shapes <- c(
+  "Control Allogeneic" = 25,       # downward triangle
+  "Control Syngeneic" = 24,        # upward triangle
+  "Baseline C57BL/6" = 21,         # circle
+  "Baseline  C57BL/6+STZ" = 22     # square
+)
+
+pca_plot <- ggplot(
+  pca_df,
+  aes(
+    x = PC1,
+    y = PC2,
+    color = Group,
+    fill = Group,
+    shape = Group
+  )
+) +
+  geom_point(
+    size = 5,
+    stroke = 1.2
+  ) +
+  stat_ellipse(
+    geom = "polygon",
+    aes(group = Group),
+    alpha = 0.15,
+    level = 0.70,
+    linewidth = 0.8,
+    show.legend = FALSE
+  ) +
+  scale_color_manual(values = group_colors, drop = FALSE) +
+  scale_fill_manual(values = group_colors, drop = FALSE) +
+  scale_shape_manual(values = group_shapes, drop = FALSE) +
+  theme_classic(base_size = 18) +
+  labs(
+    title = "PCA of Allogeneic–Syngeneic Signature",
+    x = paste0(
+      "PC1 (",
+      round(percent_variance[1], 1),
+      "%)"
+    ),
+    y = paste0(
+      "PC2 (",
+      round(percent_variance[2], 1),
+      "%)"
+    )
+  ) +
+  theme(
+    legend.position = "top",
+    legend.title = element_blank(),
+    axis.title = element_text(
+      size = 20,
+      face = "bold"
+    ),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_line(
+      color = "black",
+      linewidth = 1
+    ),
+    panel.grid = element_blank(),
+    plot.title = element_text(
+      size = 18,
+      face = "bold",
+      hjust = 0.5
+    )
+  )
+
+pca_plot
 
